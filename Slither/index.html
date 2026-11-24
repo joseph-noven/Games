@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0e1412">
+<meta name="description" content="Slither: a pixel snake game with 10 levels, played on a little retro phone.">
+<title>Slither</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1412; overscroll-behavior: none; }
+  body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="Slither, a snake game"></canvas>
+<script>
+(() => {
+'use strict';
+
+/* ================= Slither =================
+   Everything is drawn pixel by pixel on a small canvas (a 144 x 256 phone)
+   and scaled up by a whole number, so every pixel stays sharp. */
+
+// ---------- colours ----------
+const C = {
+  bg: '#0e1412', bgDot: '#172220',
+  shadow: 'rgba(0,0,0,0.45)',
+  body: '#2a3538', bodyHi: '#46575e', bodyLo: '#1c2528', edge: '#10171a', brand: '#8fa5a9',
+  bezel: '#0f1619', bezelHi: '#24313a',
+  lcd: '#b4c98a', shade: '#a2b878', ghost: '#a7bc7d', mid: '#6d8451', dark: '#25331e',
+  key: '#d6dcd7', keyHi: '#f4f7f3', keyLo: '#a7afa8', keyEdge: '#59625e', keyTxt: '#27302f',
+  keyG: '#c8dcc1', keyGHi: '#ecf5e6', arrow: '#2b7a45', led: '#6dff86', ledOff: '#18261d'
+};
+
+// ---------- pixel fonts ----------
+// Big 5x7: 7 rows, two hex digits each. Small 3x5: 5 rows, one octal digit each.
+const BIGHEX = {
+  A:'0E11111F111111', B:'1E11111E11111E', C:'0E11101010110E', D:'1C12111111121C', E:'1F10101E10101F',
+  F:'1F10101E101010', G:'0E11101711110F', H:'1111111F111111', I:'0E04040404040E', J:'0702020202120C',
+  K:'11121418141211', L:'1010101010101F', M:'111B1515111111', N:'11111915131111', O:'0E11111111110E',
+  P:'1E11111E101010', Q:'0E11111115120D', R:'1E11111E141211', S:'0F10100E01011E', T:'1F040404040404',
+  U:'1111111111110E', V:'11111111110A04', W:'1111111515150A', X:'11110A040A1111', Y:'11110A04040404',
+  Z:'1F01020408101F',
+  '0':'0E11131519110E', '1':'040C040404040E', '2':'0E11010204081F', '3':'1F02040201110E', '4':'02060A121F0202',
+  '5':'1F101E0101110E', '6':'0608101E11110E', '7':'1F010204080808', '8':'0E11110E11110E', '9':'0E11110F01020C',
+  ' ':'00000000000000', '.':'00000000000C0C', ',':'000000000C0408', '!':'04040404040004', '?':'0E110102040004',
+  ':':'000C0C000C0C00', '-':'0000000E000000', '+':'0004041F040400', '/':'01010204081010', "'":'04040800000000',
+  '(':'02040808080402', ')':'08040202020408', '>':'08040201020408', '<':'02040810080402', '*':'0004150E150400',
+  '#':'0A0A1F0A1F0A0A', '=':'00001F001F0000', '↑':'040E1504040404', '↓':'04040404150E04',
+  '←':'0004081F080400', '→':'0004021F020400', '♥':'000A1F1F0E0400', '★':'040E1F0E0A1100',
+  '@':'0E11111F1B1B1F', '●':'02040E1F1F1F0E', '♪':'060504040C1C18'
+};
+const SMALLOCT = {
+  '0':'75557', '1':'26227', '2':'71747', '3':'71717', '4':'55711', '5':'74717', '6':'74757', '7':'71122', '8':'75757', '9':'75717',
+  A:'25755', B:'65656', C:'34443', D:'65556', E:'74647', F:'74644', G:'34553', H:'55755', I:'72227', J:'11152', K:'55655',
+  L:'44447', M:'57755', N:'65555', O:'25552', P:'65644', Q:'25563', R:'65655', S:'34216', T:'72222', U:'55557', V:'55552',
+  W:'55775', X:'55255', Y:'55222', Z:'71247',
+  ' ':'00000', '.':'00002', ':':'02020', '/':'11244', '-':'00700', '+':'02720', '!':'22202', '?':'61202', '%':'51245',
+  ',':'00024', "'":'22000', '*':'52725', '#':'57575', '(':'12221', ')':'42224', '<':'12421', '>':'42124', '=':'07070',
+  '↑':'27222', '↓':'22272', '←':'13731', '→':'46764', '●':'27772', '@':'25775'
+};
+const BIG = {}, SMALL = {};
+for (const k in BIGHEX) { const h = BIGHEX[k], r = []; for (let i = 0; i < 7; i++) r.push(parseInt(h.substr(i * 2, 2), 16)); BIG[k] = r; }
+for (const k in SMALLOCT) { const h = SMALLOCT[k], r = []; for (let i = 0; i < 5; i++) r.push(parseInt(h[i], 8)); SMALL[k] = r; }
+
+// ---------- canvas ----------
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const buf = document.createElement('canvas');
+const g = buf.getContext('2d');
+const PW = 144, PH = 256;
+let dpr = 1, S = 1, VW = PW, VH = PH, OX = 0, OY = 0, bgPat = null;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 4);
+  const cw = cv.clientWidth || innerWidth, ch = cv.clientHeight || innerHeight;
+  const w = Math.max(1, Math.round(cw * dpr)), h = Math.max(1, Math.round(ch * dpr));
+  cv.width = w; cv.height = h;
+  S = Math.max(1, Math.floor(Math.min(w / (PW + 6), h / (PH + 6))));
+  VW = Math.ceil(w / S); VH = Math.ceil(h / S);
+  buf.width = VW; buf.height = VH;
+  OX = Math.floor((VW - PW) / 2); OY = Math.floor((VH - PH) / 2);
+  const p = document.createElement('canvas'); p.width = 4; p.height = 4;
+  const pg = p.getContext('2d');
+  pg.fillStyle = C.bg; pg.fillRect(0, 0, 4, 4); pg.fillStyle = C.bgDot; pg.fillRect(0, 0, 1, 1);
+  bgPat = g.createPattern(p, 'repeat');
+}
+
+// ---------- drawing helpers (phone coordinates) ----------
+function R(x, y, w, h, c) { g.fillStyle = c; g.fillRect(OX + x, OY + y, w, h); }
+function insets(r) { const a = []; for (let i = 0; i < r; i++) { const dy = r - i - 0.5; a.push(Math.round(r - Math.sqrt(Math.max(0, r * r - dy * dy)))); } return a; }
+const INS = {};
+function RR(x, y, w, h, r, c) {
+  const a = INS[r] || (INS[r] = insets(r));
+  g.fillStyle = c;
+  for (let i = 0; i < h; i++) {
+    let s = 0;
+    if (i < r) s = a[i]; else if (i >= h - r) s = a[h - 1 - i];
+    g.fillRect(OX + x + s, OY + y + i, w - 2 * s, 1);
+  }
+}
+function tw(s, big = true, sc = 1) { s = String(s); return s.length ? (s.length * (big ? 6 : 4) - 1) * sc : 0; }
+function T(s, x, y, col, big = true, align = 0, sc = 1) {
+  s = String(s).toUpperCase();
+  const w = tw(s, big, sc);
+  if (align === 1) x -= Math.floor(w / 2); else if (align === 2) x -= w;
+  const F = big ? BIG : SMALL, fw = big ? 5 : 3, fh = big ? 7 : 5, adv = (big ? 6 : 4) * sc;
+  g.fillStyle = col;
+  for (const ch of s) {
+    const rows = F[ch] || F['?'];
+    for (let r = 0; r < fh; r++) {
+      const bits = rows[r]; if (!bits) continue;
+      for (let c = 0; c < fw; c++) if (bits & (1 << (fw - 1 - c))) g.fillRect(OX + x + c * sc, OY + y + r * sc, sc, sc);
+    }
+    x += adv;
+  }
+}
+
+// ---------- save ----------
+const SAVE_KEY = 'slither.v1';
+const SPEEDS = [{ name: 'EASY', mult: 1.35 }, { name: 'NORMAL', mult: 1 }, { name: 'FAST', mult: 0.75 }];
+let save = { best: 0, unlocked: 1, speed: 1, sound: true, cleared: [] };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') save = Object.assign(save, s); } catch (e) {}
+if (!Array.isArray(save.cleared)) save.cleared = [];
+save.unlocked = Math.max(1, Math.min(10, save.unlocked | 0));
+save.speed = Math.max(0, Math.min(2, save.speed | 0));
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+
+// ---------- sound ----------
+let AC = null;
+function audio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f, d, type = 'square', v = 0.05, f2 = 0, delay = 0) {
+  if (!save.sound || !AC) return;
+  const t = AC.currentTime + delay;
+  const o = AC.createOscillator(), gn = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+  gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(gn); gn.connect(AC.destination); o.start(t); o.stop(t + d + 0.03);
+}
+const SFX = {
+  eat() { tone(660, 0.07, 'square', 0.05, 1050); },
+  bonus() { [660, 880, 1175, 1568].forEach((f, i) => tone(f, 0.07, 'square', 0.045, 0, i * 0.06)); },
+  spawn() { tone(1568, 0.04, 'square', 0.03); tone(2093, 0.05, 'square', 0.03, 0, 0.05); },
+  die() { tone(392, 0.55, 'sawtooth', 0.06, 70); },
+  clear() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.1, 'square', 0.045, 0, i * 0.09)); },
+  win() { [523, 659, 784, 1047, 784, 1047, 1319, 1568].forEach((f, i) => tone(f, 0.12, 'square', 0.045, 0, i * 0.11)); },
+  move() { tone(1400, 0.025, 'square', 0.025); },
+  ok() { tone(988, 0.05, 'square', 0.04); },
+  bad() { tone(140, 0.12, 'square', 0.05); }
+};
+function vib(p) { if (save.sound && navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} } }
+
+// ---------- levels (24 x 16, '#' = wall) ----------
+const COLS = 24, ROWS = 16;
+const E = '........................';
+const LEVELS = [
+  { name: 'OPEN FIELD', goal: 10, start: [6, 8, 'R'], map: null },
+  { name: 'TWO BARS', goal: 12, start: [6, 8, 'R'], map: [E, E, E, E,
+    '.....##############.....', E, E, E, E, E, E,
+    '.....##############.....', E, E, E, E] },
+  { name: 'CROSSROADS', goal: 12, start: [6, 14, 'R'], map: [E, E, E,
+    '...........##...........', '...........##...........', '...........##...........', '...........##...........',
+    '......############......', '......############......',
+    '...........##...........', '...........##...........', '...........##...........', '...........##...........',
+    E, E, E] },
+  { name: 'FOUR CORNERS', goal: 14, start: [6, 8, 'R'], map: [E, E,
+    '..######........######..', '..#..................#..', '..#..................#..',
+    E, E, E, E, E, E,
+    '..#..................#..', '..#..................#..', '..######........######..',
+    E, E] },
+  { name: 'PILLARS', goal: 14, start: [6, 10, 'R'], map: [E, E, E,
+    '....##.....##.....##....', '....##.....##.....##....', E, E,
+    '.......##......##.......', '.......##......##.......', E, E,
+    '....##.....##.....##....', '....##.....##.....##....', E, E, E] },
+  { name: 'FOUR ROOMS', goal: 15, start: [5, 4, 'R'], map: [
+    '............#...........', '............#...........', '............#...........', E, E,
+    '............#...........', '............#...........', '............#...........',
+    '#####..##########..#####',
+    '............#...........', '............#...........', E, E,
+    '............#...........', '............#...........', '............#...........'] },
+  { name: 'ZIGZAG', goal: 15, start: [5, 13, 'R'], map: [E, E, E,
+    '##################......', E, E, E,
+    '......##################', E, E, E,
+    '##################......', E, E, E, E] },
+  { name: 'THE BOX', goal: 16, start: [5, 13, 'R'], map: [E, E, E, E,
+    '......#####..#####......',
+    '......#..........#......', '......#..........#......', '......#..........#......',
+    '......#..........#......', '......#..........#......', '......#..........#......',
+    '......#####..#####......', E, E, E, E] },
+  { name: 'LANES', goal: 16, start: [1, 12, 'U'], map: [
+    '....#.........#.........', '....#.........#.........', '....#.........#.........', '....#.........#.........',
+    '....#....#....#....#....', '....#....#....#....#....', '....#....#....#....#....', '....#....#....#....#....',
+    '....#....#....#....#....', '....#....#....#....#....', '....#....#....#....#....', '....#....#....#....#....',
+    '.........#.........#....', '.........#.........#....', '.........#.........#....', '.........#.........#....'] },
+  { name: 'THE COMB', goal: 18, start: [5, 8, 'R'], map: [E, E,
+    '..####################..',
+    '.....#.....#.....#......', '.....#.....#.....#......', '.....#.....#.....#......', '.....#.....#.....#......',
+    E, E,
+    '........#.....#.........', '........#.....#.........', '........#.....#.........', '........#.....#.........',
+    '..####################..', E, E] }
+];
+const BASE_MS = [165, 155, 147, 139, 131, 123, 116, 109, 102, 95];
+for (const L of LEVELS) {
+  if (L.map && (L.map.length !== ROWS || L.map.some(r => r.length !== COLS))) console.error('Bad level', L.name);
+  const [sx, sy, sd] = L.start, [dx, dy] = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] }[sd];
+  for (let k = 0; k < 4; k++) {
+    const x = sx - dx * k, y = sy - dy * k;
+    if (x < 0 || y < 0 || x >= COLS || y >= ROWS || (L.map && L.map[y][x] === '#')) console.error('Bad start', L.name);
+  }
+}
+
+const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+const OPP = { U: 'D', D: 'U', L: 'R', R: 'L' };
+const DIRKEY = { '2': 'U', '8': 'D', '4': 'L', '6': 'R' };
+
+// ---------- game state ----------
+let screen = 'title';          // title levels help ready play paused dying clear over win
+let menuIdx = 0, lvlSel = 0, overIdx = 0;
+let level = 0, walls = new Uint8Array(COLS * ROWS), snake = [], dir = 'R', queue = [];
+let apple = null, bonus = null, eaten = 0, grow = 0, score = 0, newBest = false;
+let acc = 0, last = 0, deathT = 0, clearT = 0, ledT = 0, stepN = 0, lastBonusAt = 0;
+
+function occupied(x, y) { for (const s of snake) if (s.x === x && s.y === y) return true; return false; }
+function freeCells(avoid) {
+  const out = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (walls[y * COLS + x] || occupied(x, y)) continue;
+    if (avoid && avoid.some(a => a && a.x === x && a.y === y)) continue;
+    out.push({ x, y });
+  }
+  return out;
+}
+function placeApple() { const f = freeCells([bonus]); apple = f.length ? f[(Math.random() * f.length) | 0] : null; }
+function placeBonus() {
+  const f = freeCells([apple]);
+  if (!f.length) return;
+  const c = f[(Math.random() * f.length) | 0];
+  bonus = { x: c.x, y: c.y, t: 40, max: 40 };
+  SFX.spawn();
+}
+
+function startLevel(i, keepScore) {
+  level = i;
+  const L = LEVELS[i];
+  walls = new Uint8Array(COLS * ROWS);
+  if (L.map) L.map.forEach((row, y) => { for (let x = 0; x < COLS; x++) if (row[x] === '#') walls[y * COLS + x] = 1; });
+  const [sx, sy, sdir] = L.start, [dx, dy] = DIRS[sdir];
+  dir = sdir; snake = [];
+  for (let k = 0; k < 4; k++) snake.push({ x: sx - dx * k, y: sy - dy * k });
+  queue = []; grow = 0; eaten = 0; bonus = null; lastBonusAt = 0;
+  if (!keepScore) score = 0;
+  placeApple();
+  acc = 0; stepN = 0;
+  screen = 'ready';
+}
+function interval() {
+  return BASE_MS[level] * SPEEDS[save.speed].mult * (1 - Math.min(0.15, eaten * 0.008));
+}
+function turn(d) {
+  const lastDir = queue.length ? queue[queue.length - 1] : dir;
+  if (d === lastDir || d === OPP[lastDir]) return;
+  if (queue.length < 3) queue.push(d);
+}
+function begin(d) {
+  if (d && d !== OPP[dir]) { queue = d === dir ? [] : [d]; }
+  acc = 0; screen = 'play';
+}
+function step(now) {
+  if (queue.length) { const d = queue.shift(); if (d !== OPP[dir]) dir = d; }
+  stepN++;
+  const h = snake[0], [dx, dy] = DIRS[dir];
+  const nx = h.x + dx, ny = h.y + dy;
+  if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS || walls[ny * COLS + nx]) return die(now);
+  const eatsApple = apple && apple.x === nx && apple.y === ny;
+  const eatsBonus = bonus && bonus.x === nx && bonus.y === ny;
+  const tailStays = grow > 0 || eatsApple || eatsBonus;
+  const n = snake.length - (tailStays ? 0 : 1);
+  for (let i = 0; i < n; i++) if (snake[i].x === nx && snake[i].y === ny) return die(now);
+  snake.unshift({ x: nx, y: ny });
+  if (eatsApple) {
+    eaten++; grow++; score += 10 * (level + 1); ledT = now + 260;
+    SFX.eat(); vib(15);
+    if (eaten >= LEVELS[level].goal) { if (grow > 0) grow--; else snake.pop(); return levelClear(now); }
+    placeApple();
+    if (eaten % 5 === 0 && !bonus && eaten !== lastBonusAt) { lastBonusAt = eaten; placeBonus(); }
+  } else if (eatsBonus) {
+    score += (30 + bonus.t * 3) * (level + 1); grow++; bonus = null; ledT = now + 500;
+    SFX.bonus(); vib([20, 30, 20]);
+  }
+  if (grow > 0) grow--; else snake.pop();
+  if (bonus && --bonus.t <= 0) bonus = null;
+}
+function die(now) {
+  screen = 'dying'; deathT = now; SFX.die(); vib([80, 50, 160]);
+}
+function endRun() {
+  newBest = score > save.best;
+  if (newBest) save.best = score;
+  persist();
+  overIdx = 0; screen = 'over';
+}
+function levelClear(now) {
+  score += 100 * (level + 1);
+  save.cleared[level] = true;
+  save.unlocked = Math.max(save.unlocked, Math.min(10, level + 2));
+  if (score > save.best) { save.best = score; }
+  persist();
+  clearT = now; bonus = null;
+  if (level === LEVELS.length - 1) { screen = 'win'; SFX.win(); } else { screen = 'clear'; SFX.clear(); }
+}
+function goTitle() { screen = 'title'; menuIdx = 0; }
+function toggleSound() { save.sound = !save.sound; persist(); if (save.sound) { audio(); SFX.ok(); } }
+
+// ---------- input ----------
+const keyDown = {};       // key id -> time the press highlight ends
+const held = new Set();   // key ids held by a finger or keyboard
+function titleItems() {
+  return ['PLAY  LEVEL ' + save.unlocked, 'LEVELS', 'SPEED ' + SPEEDS[save.speed].name, 'SOUND ' + (save.sound ? 'ON' : 'OFF'), 'HOW TO PLAY'];
+}
+function press(id, now) {
+  audio();
+  keyDown[id] = now + 140;
+  action(id, now);
+}
+function action(id, now) {
+  const d = DIRKEY[id];
+  switch (screen) {
+    case 'play':
+      if (d) turn(d);
+      else if (id === '5' || id === '0' || id === '*') { screen = 'paused'; SFX.ok(); }
+      else if (id === '#') toggleSound();
+      break;
+    case 'ready':
+      if (d || id === '5') begin(d);
+      else if (id === '*') { SFX.ok(); goTitle(); }
+      else if (id === '#') toggleSound();
+      break;
+    case 'paused':
+      if (id === '5' || id === '0') { screen = 'play'; acc = 0; SFX.ok(); }
+      else if (id === '*') { SFX.ok(); goTitle(); }
+      else if (id === '#') toggleSound();
+      break;
+    case 'dying':
+      break;
+    case 'clear':
+      if (now - clearT > 500 && (id === '5' || d)) { SFX.ok(); startLevel(level + 1, true); }
+      else if (id === '*' && now - clearT > 500) { SFX.ok(); goTitle(); }
+      break;
+    case 'win':
+      if (now - clearT > 800 && (id === '5' || id === '*')) { SFX.ok(); goTitle(); }
+      break;
+    case 'over':
+      if (d === 'U' || d === 'D') { overIdx = 1 - overIdx; SFX.move(); }
+      else if (id === '5') { SFX.ok(); if (overIdx === 0) startLevel(level, false); else goTitle(); }
+      else if (id === '*') { SFX.ok(); goTitle(); }
+      break;
+    case 'title': {
+      const n = titleItems().length;
+      if (d === 'U') { menuIdx = (menuIdx + n - 1) % n; SFX.move(); }
+      else if (d === 'D') { menuIdx = (menuIdx + 1) % n; SFX.move(); }
+      else if (menuIdx === 2 && (d === 'L' || d === 'R' || id === '5')) {
+        save.speed = (save.speed + (d === 'L' ? 2 : 1)) % 3; persist(); SFX.move();
+      } else if (menuIdx === 3 && (d === 'L' || d === 'R' || id === '5')) toggleSound();
+      else if (id === '5') {
+        SFX.ok();
+        if (menuIdx === 0) startLevel(save.unlocked - 1, false);
+        else if (menuIdx === 1) { lvlSel = save.unlocked - 1; screen = 'levels'; }
+        else if (menuIdx === 4) screen = 'help';
+      } else if (id === '#') toggleSound();
+      break;
+    }
+    case 'levels':
+      if (d === 'L') { lvlSel = (lvlSel + 9) % 10; SFX.move(); }
+      else if (d === 'R') { lvlSel = (lvlSel + 1) % 10; SFX.move(); }
+      else if (d === 'U' || d === 'D') { lvlSel = (lvlSel + 5) % 10; SFX.move(); }
+      else if (id === '5') { if (lvlSel < save.unlocked) { SFX.ok(); startLevel(lvlSel, false); } else SFX.bad(); }
+      else if (id === '*') { SFX.ok(); goTitle(); }
+      break;
+    case 'help':
+      if (id === '5' || id === '*') { SFX.ok(); goTitle(); }
+      break;
+  }
+}
+function tap(x, y, now) {
+  // taps on the little screen work like pressing a key
+  if (x < 10 || x > 133 || y < 20 || y > 120) return;
+  if (screen === 'title') {
+    const items = titleItems();
+    for (let i = 0; i < items.length; i++) {
+      const iy = 52 + i * 10;
+      if (y >= iy - 3 && y < iy + 8) { if (menuIdx === i) action('5', now); else { menuIdx = i; SFX.move(); action('5', now); } return; }
+    }
+  } else if (screen === 'levels') {
+    for (let i = 0; i < 10; i++) {
+      const cx = 14 + (i % 5) * 22, cy = 36 + Math.floor(i / 5) * 18;
+      if (x >= cx && x < cx + 20 && y >= cy && y < cy + 15) { if (lvlSel === i) action('5', now); else { lvlSel = i; SFX.move(); } return; }
+    }
+  } else if (screen === 'over') {
+    if (y >= 70 && y < 81) { overIdx = 0; action('5', now); }
+    else if (y >= 82 && y < 94) { overIdx = 1; action('5', now); }
+  } else if (screen === 'ready' || screen === 'paused' || screen === 'clear' || screen === 'win' || screen === 'help') {
+    action('5', now);
+  }
+}
+
+const KX = [10, 53, 96], KY = [146, 172, 198, 224], KW = 38, KH = 22;
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((id, i) => ({ id, x: KX[i % 3], y: KY[(i / 3) | 0], w: KW, h: KH }));
+function keyAt(x, y) { return KEYS.find(k => x >= k.x - 2 && x < k.x + k.w + 2 && y >= k.y - 2 && y < k.y + k.h + 2) || null; }
+function toPhone(e) {
+  const r = cv.getBoundingClientRect();
+  const vx = ((e.clientX - r.left) * (cv.width / r.width)) / S, vy = ((e.clientY - r.top) * (cv.height / r.height)) / S;
+  return { x: vx - OX, y: vy - OY };
+}
+const ptr = new Map();
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  const now = performance.now(), p = toPhone(e), k = keyAt(p.x, p.y);
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  if (k) { held.add(k.id); ptr.set(e.pointerId, { key: k.id }); press(k.id, now); }
+  else { audio(); ptr.set(e.pointerId, { sx: e.clientX, sy: e.clientY, px: p.x, py: p.y, moved: false }); }
+});
+cv.addEventListener('pointermove', e => {
+  const s = ptr.get(e.pointerId);
+  if (!s || s.key) return;
+  const dx = e.clientX - s.sx, dy = e.clientY - s.sy, th = 22;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < th) return;
+  const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : (dy > 0 ? 'D' : 'U');
+  s.sx = e.clientX; s.sy = e.clientY; s.moved = true;
+  const id = { U: '2', D: '8', L: '4', R: '6' }[d];
+  action(id, performance.now());
+});
+function endPointer(e, cancel) {
+  const s = ptr.get(e.pointerId);
+  if (!s) return;
+  ptr.delete(e.pointerId);
+  if (s.key) held.delete(s.key);
+  else if (!s.moved && !cancel) tap(s.px, s.py, performance.now());
+}
+cv.addEventListener('pointerup', e => endPointer(e, false));
+cv.addEventListener('pointercancel', e => endPointer(e, true));
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+const KEYMAP = {
+  ArrowUp: '2', KeyW: '2', Digit2: '2', Numpad8: '2', ArrowDown: '8', KeyS: '8', Digit8: '8', Numpad2: '8',
+  ArrowLeft: '4', KeyA: '4', Digit4: '4', Numpad4: '4', ArrowRight: '6', KeyD: '6', Digit6: '6', Numpad6: '6',
+  Enter: '5', NumpadEnter: '5', Space: '5', Digit5: '5', Numpad5: '5', Escape: '*', Backspace: '*',
+  KeyP: '0', Digit0: '0', Numpad0: '0', KeyM: '#'
+};
+addEventListener('keydown', e => {
+  const id = KEYMAP[e.code];
+  if (!id) return;
+  e.preventDefault();
+  if (e.repeat && !DIRKEY[id]) return;
+  held.add(id); press(id, performance.now());
+});
+addEventListener('keyup', e => { const id = KEYMAP[e.code]; if (id) held.delete(id); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && screen === 'play') screen = 'paused'; });
+addEventListener('resize', resize);
+
+// ---------- drawing ----------
+const FX = 12, FY = 32;   // top-left of the playing field (5 px per cell)
+function drawPhone(now) {
+  RR(3, 4, PW, PH, 12, C.shadow);
+  RR(0, 0, PW, PH, 12, C.edge);
+  RR(1, 1, PW - 2, PH - 2, 11, C.body);
+  R(4, 14, 1, PH - 28, C.bodyHi); R(14, 3, PW - 28, 1, C.bodyHi);
+  R(PW - 4, 14, 1, PH - 28, C.bodyLo);
+  RR(56, 6, 32, 4, 2, C.edge);
+  for (let i = 0; i < 6; i++) R(60 + i * 5, 7, 2, 2, C.bodyLo);
+  R(126, 7, 4, 2, ledT > now ? C.led : C.ledOff);
+  RR(6, 15, 132, 111, 5, C.bezel);
+  R(9, 18, 126, 1, C.bezelHi);
+  T('SLITHER', 72, 132, C.brand, true, 1);
+  for (const k of KEYS) drawKey(k, now);
+  for (let i = 0; i < 5; i++) R(64 + i * 4, 250, 2, 1, C.bodyLo);
+}
+function drawKey(k, now) {
+  const down = (keyDown[k.id] || 0) > now || held.has(k.id);
+  const ar = '2468'.includes(k.id);
+  const o = down ? 2 : 0;
+  RR(k.x, k.y + 2, k.w, k.h, 4, C.keyEdge);
+  RR(k.x, k.y + o, k.w, k.h, 4, down ? C.keyLo : (ar ? C.keyG : C.key));
+  if (!down) R(k.x + 4, k.y + 1, k.w - 8, 1, ar ? C.keyGHi : C.keyHi);
+  T(k.id, k.x + 5, k.y + 8 + o, C.keyTxt, true);
+  const icon = { '2': '↑', '4': '←', '6': '→', '8': '↓' }[k.id];
+  if (icon) T(icon, k.x + k.w - 6, k.y + 8 + o, C.arrow, true, 2);
+  const sub = { '5': 'OK', '*': 'MENU', '0': 'PAUSE', '#': save.sound ? 'SOUND' : 'MUTED' }[k.id];
+  if (sub) T(sub, k.x + k.w - 4, k.y + 9 + o, k.id === '#' && !save.sound ? C.keyLo : C.keyTxt, false, 2);
+}
+function cell(x, y) { return [FX + x * 5, FY + y * 5]; }
+function drawField(now, showSnake) {
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) R(FX + x * 5, FY + y * 5, 4, 4, C.ghost);
+  R(FX - 1, FY - 1, COLS * 5 + 1, 1, C.dark); R(FX - 1, FY + ROWS * 5, COLS * 5 + 1, 1, C.dark);
+  R(FX - 1, FY - 1, 1, ROWS * 5 + 1, C.dark); R(FX + COLS * 5, FY - 1, 1, ROWS * 5 + 2, C.dark);
+  // walls
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (!walls[y * COLS + x]) continue;
+    const [px, py] = cell(x, y);
+    R(px, py, 4, 4, C.dark);
+    const rw = x + 1 < COLS && walls[y * COLS + x + 1], dw = y + 1 < ROWS && walls[(y + 1) * COLS + x];
+    if (rw) R(px + 4, py, 1, 4, C.dark);
+    if (dw) R(px, py + 4, 4, 1, C.dark);
+    if (rw && dw && walls[(y + 1) * COLS + x + 1]) R(px + 4, py + 4, 1, 1, C.dark);
+    R(px + 1, py + 1, 2, 2, C.mid);
+  }
+  // apple
+  if (apple) {
+    const [px, py] = cell(apple.x, apple.y);
+    R(px + 1, py, 2, 1, C.dark); R(px, py + 1, 4, 2, C.dark); R(px + 1, py + 3, 2, 1, C.dark);
+    R(px + 2, py - 1, 1, 1, C.dark);
+    R(px + 1, py + 1, 1, 1, C.mid);
+  }
+  // bonus bug
+  if (bonus && (bonus.t > 12 || Math.floor(now / 120) % 2 === 0)) {
+    const [px, py] = cell(bonus.x, bonus.y);
+    R(px, py, 1, 1, C.dark); R(px + 3, py, 1, 1, C.dark);
+    R(px + 1, py + 1, 2, 1, C.dark); R(px, py + 2, 4, 1, C.dark);
+    R(px, py + 3, 1, 1, C.dark); R(px + 3, py + 3, 1, 1, C.dark);
+  }
+  if (!showSnake) return;
+  // snake
+  const n = snake.length;
+  for (let i = 0; i < n; i++) {
+    const s = snake[i], [px, py] = cell(s.x, s.y);
+    if (i === n - 1 && n > 1) R(px + 1, py + 1, 2, 2, C.dark); else R(px, py, 4, 4, C.dark);
+    const nx = snake[i + 1];
+    if (nx) {
+      if (nx.x === s.x + 1) R(px + 4, py + 1, 1, 2, C.dark);
+      else if (nx.x === s.x - 1) R(px - 1, py + 1, 1, 2, C.dark);
+      else if (nx.y === s.y + 1) R(px + 1, py + 4, 2, 1, C.dark);
+      else if (nx.y === s.y - 1) R(px + 1, py - 1, 2, 1, C.dark);
+      if (i < n - 2) {
+        if (nx.x === s.x + 1) R(px + 4, py, 1, 4, C.dark);
+        else if (nx.x === s.x - 1) R(px - 1, py, 1, 4, C.dark);
+        else if (nx.y === s.y + 1) R(px, py + 4, 4, 1, C.dark);
+        else if (nx.y === s.y - 1) R(px, py - 1, 4, 1, C.dark);
+      }
+    }
+  }
+  // head: eye and a flicking tongue
+  const h = snake[0], [hx, hy] = cell(h.x, h.y);
+  const eye = { R: [2, 1], L: [1, 1], U: [2, 1], D: [2, 2] }[dir];
+  R(hx + eye[0], hy + eye[1], 1, 1, C.lcd);
+  if (screen === 'play' && Math.floor(now / 140) % 9 === 0) {
+    const tg = { R: [4, 2], L: [-1, 1], U: [1, -1], D: [2, 4] }[dir];
+    R(hx + tg[0], hy + tg[1], 1, 1, C.dark);
+  }
+}
+function box(x, y, w, h) {
+  R(x - 1, y - 1, w + 2, h + 2, C.lcd);
+  R(x, y, w, h, C.dark); R(x + 1, y + 1, w - 2, h - 2, C.lcd); R(x + 2, y + 2, w - 4, h - 4, C.dark); R(x + 3, y + 3, w - 6, h - 6, C.lcd);
+}
+function hud() {
+  const L = LEVELS[level];
+  T('L' + (level + 1), 12, 22, C.dark, true);
+  T('●', 50, 22, C.dark, true);
+  T(eaten + '/' + L.goal, 57, 22, C.dark, true);
+  T(String(score).padStart(5, '0'), 132, 22, C.dark, true, 2);
+  if (bonus) {
+    T('BONUS', 12, 115, C.dark, false);
+    const w = Math.ceil(bonus.t / bonus.max * 80);
+    R(34, 115, 82, 5, C.dark); R(35, 116, 80, 3, C.lcd); R(35, 116, w, 3, C.dark);
+  } else {
+    T(L.name, 12, 115, C.mid, false);
+    T(SPEEDS[save.speed].name, 132, 115, C.mid, false, 2);
+  }
+}
+function drawLCD(now) {
+  R(10, 20, 124, 101, C.lcd);
+  R(10, 20, 124, 1, C.shade); R(10, 20, 1, 101, C.shade);
+  const blink = Math.floor(now / 400) % 2 === 0;
+  if (screen === 'title') {
+    T('SLITHER', 72, 25, C.dark, true, 1, 2);
+    const t = now / 1000;
+    for (let i = 13; i >= 0; i--) {
+      const x = Math.floor(((t * 30 - i * 3) % 160 + 160) % 160) - 12;
+      if (x < 12 || x > 129) continue;
+      const y = 43 + Math.round(Math.sin((t * 30 - i * 3) / 6) * 2);
+      R(x, y, 3, 3, C.dark);
+      if (i === 0) R(x + 2, y, 1, 1, C.lcd);
+    }
+    titleItems().forEach((s, i) => {
+      const y = 52 + i * 10;
+      if (i === menuIdx) { R(12, y - 2, 120, 11, C.dark); T(s, 72, y, C.lcd, true, 1); }
+      else T(s, 72, y, C.dark, true, 1);
+    });
+    T('BEST ' + save.best, 72, 114, C.mid, false, 1);
+    return;
+  }
+  if (screen === 'levels') {
+    T('LEVELS', 72, 24, C.dark, true, 1);
+    for (let i = 0; i < 10; i++) {
+      const cx = 14 + (i % 5) * 22, cy = 36 + Math.floor(i / 5) * 18;
+      const open = i < save.unlocked, sel = i === lvlSel;
+      if (sel) R(cx, cy, 20, 15, C.dark);
+      else { R(cx, cy, 20, 1, C.dark); R(cx, cy + 14, 20, 1, C.dark); R(cx, cy, 1, 15, C.dark); R(cx + 19, cy, 1, 15, C.dark); }
+      const col = sel ? C.lcd : (open ? C.dark : C.mid);
+      T(open ? String(i + 1) : '@', cx + 10, cy + 4, col, true, 1);
+      if (save.cleared[i]) R(cx + 16, cy + 2, 2, 2, col);
+    }
+    const L = LEVELS[lvlSel];
+    T(L.name, 72, 74, C.dark, true, 1);
+    T(lvlSel < save.unlocked ? 'EAT ' + L.goal + ' APPLES' : 'CLEAR LEVEL ' + lvlSel + ' FIRST', 72, 86, C.mid, false, 1);
+    T('5 START   * BACK', 72, 112, C.mid, false, 1);
+    return;
+  }
+  if (screen === 'help') {
+    T('HOW TO PLAY', 72, 23, C.dark, true, 1);
+    const lines = ['EAT THE APPLES TO', 'GROW. EAT ENOUGH', 'TO CLEAR A LEVEL.', "HIT A WALL OR YOUR", 'TAIL AND IT ENDS!', 'SWIPE OR 2 4 6 8', '5 PAUSE   * MENU'];
+    lines.forEach((s, i) => T(s, 72, 34 + i * 10, i < 5 ? C.dark : C.mid, true, 1));
+    return;
+  }
+  // game screens
+  const dying = screen === 'dying';
+  const showSnake = !dying || Math.floor((now - deathT) / 160) % 2 === 1 || now - deathT > 1200;
+  drawField(now, showSnake);
+  hud();
+  if (screen === 'ready') {
+    box(36, 56, 72, 30);
+    if (blink) T('READY?', 72, 61, C.dark, true, 1);
+    T('SWIPE OR 2468', 72, 74, C.mid, false, 1);
+  } else if (screen === 'paused') {
+    box(32, 54, 80, 34);
+    T('PAUSED', 72, 59, C.dark, true, 1);
+    T('5 GO ON', 72, 71, C.mid, false, 1);
+    T('* MENU', 72, 79, C.mid, false, 1);
+  } else if (screen === 'clear') {
+    box(24, 50, 96, 42);
+    T('LEVEL ' + (level + 1), 72, 55, C.dark, true, 1);
+    T('CLEAR!', 72, 64, C.dark, true, 1);
+    T('+' + 100 * (level + 1) + ' BONUS', 72, 75, C.mid, false, 1);
+    if (blink && now - clearT > 500) T('5 NEXT LEVEL', 72, 83, C.dark, false, 1);
+  } else if (screen === 'win') {
+    box(20, 44, 104, 54);
+    T('★ YOU WIN! ★', 72, 49, C.dark, true, 1);
+    T('ALL 10 LEVELS', 72, 60, C.mid, false, 1);
+    T('SCORE ' + score, 72, 69, C.dark, true, 1);
+    T('BEST ' + save.best, 72, 80, C.mid, false, 1);
+    if (blink && now - clearT > 800) T('5 MENU', 72, 89, C.dark, false, 1);
+  } else if (screen === 'over') {
+    box(22, 38, 100, 62);
+    T('GAME OVER', 72, 43, C.dark, true, 1);
+    T('SCORE ' + score, 72, 54, C.dark, false, 1);
+    T(newBest ? (blink ? 'NEW BEST!' : '') : 'BEST ' + save.best, 72, 61, C.mid, false, 1);
+    ['RETRY', 'MENU'].forEach((s, i) => {
+      const y = 72 + i * 12;
+      if (i === overIdx) { R(42, y - 2, 60, 11, C.dark); T(s, 72, y, C.lcd, true, 1); }
+      else T(s, 72, y, C.dark, true, 1);
+    });
+  }
+}
+function render(now) {
+  g.fillStyle = bgPat || C.bg; g.fillRect(0, 0, VW, VH);
+  drawPhone(now);
+  drawLCD(now);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(buf, 0, 0, VW * S, VH * S);
+}
+
+// ---------- loop ----------
+function frame(now) {
+  const dt = Math.min(120, now - (last || now)); last = now;
+  if (screen === 'play') {
+    acc += dt;
+    let guard = 0;
+    while (screen === 'play' && acc >= interval() && guard++ < 4) { acc -= interval(); step(now); }
+  } else if (screen === 'dying' && now - deathT > 1500) endRun();
+  render(now);
+  requestAnimationFrame(frame);
+}
+resize();
+requestAnimationFrame(frame);
+window.__slither = { get screen() { return screen; }, get snake() { return snake; }, get level() { return level; }, get score() { return score; }, get apple() { return apple; } };
+})();
+</script>
+</body>
+</html>
