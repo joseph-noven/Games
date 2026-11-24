@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0d140f">
+<meta name="description" content="MossBlocks: push the crates onto the moss pits. 20 pixel puzzle levels.">
+<title>MossBlocks</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d140f; overscroll-behavior: none; }
+  body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="MossBlocks, a crate pushing puzzle"></canvas>
+<script>
+(() => {
+'use strict';
+
+/* ================= MossBlocks =================
+   Push every crate onto a moss pit. Pixel art all the way: the board is drawn at 16 px per tile and the
+   buttons and text on a small canvas, each scaled up by a whole number so the pixels stay sharp. */
+
+const LEVELS = [
+  { name: "FIRST PUSH", rows: ["#######", "#     #", "#@ $ .#", "#     #", "#######"] },
+  { name: "ROUND THE BEND", rows: ["######", "#@   #", "# $  #", "###  #", "  #. #", "  ####"] },
+  { name: "MOSS STEPS", rows: ["#######", "#    .#", "# $  .#", "## $ ##", "###@###", "#######"] },
+  { name: "TWO STONES", rows: ["########", "#   .###", "#   .  #", "# $ @  #", "# $   ##", "# ##  ##", "########"] },
+  { name: "THE NOOK", rows: ["########", "#..  ###", "#    ###", "#   @  #", "# $  $ #", "## #  ##", "########"] },
+  { name: "SPLIT HALL", rows: ["########", "#   # @#", "#   #$ #", "##   $ #", "#  .####", "###. ###", "########"] },
+  { name: "FERN GATE", rows: ["########", "#    ###", "# $  $@#", "#  $####", "#   ####", "#.    ##", "#..    #", "########"] },
+  { name: "OLD WELL", rows: ["#########", "# $   ..#", "#  $ ##.#", "#  $ @  #", "# #     #", "# ##    #", "#########"] },
+  { name: "ROOT CELLAR", rows: ["########", "###   ##", "# $$ $##", "#      #", "# # @  #", "# ##  ##", "#...   #", "########"] },
+  { name: "TWIN PITS", rows: ["#########", "#..# ## #", "#.   $  #", "#  @ $  #", "#  ## $ #", "#     ###", "#########"] },
+  { name: "LONG ROW", rows: ["########", "### ...#", "# #    #", "# $    #", "#@ $ # #", "# #$ ###", "##   ###", "########"] },
+  { name: "BROKEN ARCH", rows: ["#########", "##    ###", "# $$    #", "# $   # #", "# $ @ . #", "#    ...#", "##### # #", "#########"] },
+  { name: "MOSS TEMPLE", rows: ["#########", "#   #  ##", "##  $  ##", "##  $ $ #", "#. @##$ #", "#.      #", "#..     #", "#########"] },
+  { name: "SUNKEN YARD", rows: ["##########", "####    ##", "####  $$ #", "##   # $ #", "##   @ $ #", "#...     #", "##.      #", "##########"] },
+  { name: "IVY CORNER", rows: ["##########", "#     ..##", "#     ..##", "#  #  ####", "#      $@#", "# $ $ $ ##", "#   ## ###", "##########"] },
+  { name: "STONE SHELF", rows: ["##########", "####     #", "##@#    .#", "##$##  ..#", "#  ##   .#", "#   $$ $ #", "#     ####", "##########"] },
+  { name: "DEEP STEPS", rows: ["##########", "#     ...#", "#     .###", "#    @ .##", "# $      #", "###$$$$  #", "##    #  #", "###   ## #", "##########"] },
+  { name: "LOST GARDEN", rows: ["##########", "#    #####", "# $  #  .#", "# $## @..#", "#   #$   #", "#  $    .#", "###   #  #", "##########"] },
+  { name: "THE VAULT", rows: ["##########", "#   ##   #", "# $$ ##$ #", "#  $   $ #", "#   # ## #", "#   #@ #.#", "#      ..#", "##     ..#", "##########"] },
+  { name: "HEART OF MOSS", rows: ["##########", "#   #### #", "#  $@$ # #", "#  ### # #", "# $      #", "# $ #   .#", "# $ #  ..#", "##  #  ..#", "##########"] },
+  // ---- 21-100: generated, each with a recorded solution replayed through the game ----
+  { name: "TWISTED GARDEN", rows: ["##########", "## .    ##", "#   .  $##", "#  . ##  #", "#$   # $ #", "#.*    $ #", "#  # ###@#", "#  #  ## #", "## #  #  #", "##########"] },
+  { name: "TANGLED CHAMBER", rows: ["##########", "##... ####", "## .     #", "###  ##  #", "###   #  #", "#@$   #  #", "## $ $ $ #", "## ###   #", "##########"] },
+  { name: "OVERGROWN CLOISTER", rows: ["###########", "###  #  ###", "#    # ## #", "# #     $ #", "# # ## #  #", "# #  @ ## #", "# #      .#", "# # $ $ *.#", "#   $ $...#", "###########"] },
+  { name: "MISTY GATE", rows: ["##########", "##      ##", "#      $ #", "#.. ###  #", "#.### $  #", "### $    #", "# #. $  ##", "#  .$##  #", "# ## @# ##", "##########"] },
+  { name: "COLD CRYPT", rows: ["###########", "##   ##  ##", "#    # $ ##", "#      $ ##", "#  .  $ $@#", "# ..#  ####", "#   # $   #", "#  ..#   ##", "###########"] },
+  { name: "MOSSY CORNER", rows: ["###########", "#   ##    #", "#   ##  $ #", "# .   $ ###", "# .     $ #", "##.. @##  #", "# .*$ ##$ #", "#        ##", "#####    ##", "###########"] },
+  { name: "SILENT SHRINE", rows: ["###########", "#  ... ####", "#  #..  ###", "#  #. $ # #", "#### @  # #", "### $   $ #", "### $$$   #", "# #       #", "#    ##   #", "#         #", "###########"] },
+  { name: "CRUMBLING ARCH", rows: ["##########", "##    #  #", "# $      #", "#  #     #", "# $   .#.#", "# #$  . .#", "# #  ## .#", "# #$$##  #", "##   @ ###", "##########"] },
+  { name: "ANCIENT CELLAR", rows: ["###########", "#    ...###", "#  ###..# #", "#   ##    #", "# $ ##    #", "# $$      #", "# $@$     #", "## ###    #", "###########"] },
+  { name: "ROOTED CROSSING", rows: ["###########", "##    ..  #", "# $# # #  #", "#  # # #  #", "# $$$#@## #", "#    $    #", "#   #     #", "### # ...##", "###########"] },
+  { name: "WILD TUNNEL", rows: ["##########", "##      ##", "###     ##", "#    #.. #", "#    .## #", "# $ ##   #", "# ..## $ #", "##   $$$ #", "##   #@ ##", "##########"] },
+  { name: "HIDDEN LEDGE", rows: ["############", "#     ### ##", "# ###  ## ##", "#  ##  ##  #", "#  ##### @ #", "#      #$###", "##### $$ ###", "# ## ..$ $ #", "#  ##..* $ #", "#  #... $  #", "##         #", "############"] },
+  { name: "CROOKED GROVE", rows: ["############", "##        ##", "##$ $$     #", "# $$  ...  #", "# ...  . # #", "#### #   ###", "#    #######", "#  #$#### ##", "##$        #", "##@##     ##", "############"] },
+  { name: "DAMP YARD", rows: ["############", "##       ###", "# ## $## # #", "# ##  ## * #", "# ## $ @ ..#", "#  ######* #", "# $$ $ ### #", "#   .    $ #", "#   ..  ## #", "#   .    # #", "#####    ###", "############"] },
+  { name: "BURIED ALCOVE", rows: ["###########", "# $    .###", "# $$   .. #", "#@$  #..# #", "###$$##.# #", "###     # #", "#  ####   #", "##    #   #", "##      ###", "###########"] },
+  { name: "DUSTY VAULT", rows: ["###########", "# .... $  #", "# $.###   #", "#   ##    #", "######@   #", "########$ #", "####  $ $ #", "##        #", "###########"] },
+  { name: "QUIET NEST", rows: ["###########", "##   @   ##", "### # $  ##", "# ####$####", "#    $ ...#", "#   $$  .##", "# ###   ..#", "###  $   ##", "### #    ##", "###########"] },
+  { name: "NARROW MAZE", rows: ["##########", "#####    #", "# ## $ $ #", "#... ##  #", "#..  ##$ #", "##   @   #", "##  ###  #", "##    $$##", "#       ##", "##########"] },
+  { name: "FORGOTTEN BRIDGE", rows: ["###########", "# # ..  ###", "# #  .  $ #", "#    # $  #", "#  # ##   #", "#   ## # ##", "# ###  # ##", "# ###  #  #", "# # $$*.$ #", "# #    + ##", "###########"] },
+  { name: "SHADOWED STAIR", rows: ["##########", "#  ... .##", "#      .##", "#       ##", "#  ## ## #", "#  ## #  #", "# $@$   ##", "# $$# $  #", "#   ##   #", "##########"] },
+  { name: "GLOWING WELL", rows: ["###########", "###  #.. ##", "#    #...##", "#  $ # .  #", "# #       #", "# ##$#  $ #", "# #@ #  $ #", "#  ##  $$ #", "#  ##     #", "###########"] },
+  { name: "DEEP GARDEN", rows: ["##########", "##   ##  #", "##       #", "# $$  ####", "# $ $    #", "#  #   ..#", "#  ####..#", "# $#    .#", "##@##   ##", "##########"] },
+  { name: "SUNKEN CHAMBER", rows: ["############", "###  #######", "# #        #", "#   #      #", "# $    #   #", "####$  #   #", "#      #   #", "# ##$ ######", "# # $ $....#", "##@$   .*.##", "############"] },
+  { name: "BROKEN CLOISTER", rows: ["###########", "#     #   #", "#   ### # #", "#    ###*.#", "#.# ## ## #", "#.#  #  . #", "#.  $     #", "#    $    #", "# ##$$  $ #", "###@  #####", "###########"] },
+  { name: "HOLLOW GATE", rows: ["############", "#         ##", "#   ###$##@#", "#     # *#$#", "# ### #....#", "#  #####.*.#", "#   #  #   #", "#   $    $$#", "# ####$    #", "# ## #  #  #", "#    #  ## #", "############"] },
+  { name: "WINDING CRYPT", rows: ["###########", "##....    #", "#   . @   #", "#  $ $ $ ##", "## ##$### #", "#####     #", "#   #  #$ #", "#      #  #", "###########"] },
+  { name: "THORNY CORNER", rows: ["###########", "##### #   #", "#   #@#   #", "#   $ # $ #", "##$ ##   .#", "#    ### *#", "###  ### .#", "#    # #$$#", "##        #", "##  ... ###", "###########"] },
+  { name: "ELDER SHRINE", rows: ["##########", "##   ##  #", "##  $ $$ #", "#  ##  $ #", "### #  $ #", "###  @   #", "##.      #", "###.     #", "##...    #", "##########"] },
+  { name: "TWISTED ARCH", rows: ["###########", "# $ .... ##", "#   #.##  #", "# $ #. $$ #", "##  #     #", "###  #### #", "##  $##@# #", "###$    ###", "##       ##", "###########"] },
+  { name: "TANGLED CELLAR", rows: ["###########", "###      ##", "## $   $$ #", "##    $$  #", "#     #  ##", "# #   ##  #", "# ##. ##  #", "#####     #", "##+*.. .###", "###########"] },
+  { name: "OVERGROWN CROSSING", rows: ["###########", "##       ##", "#    ##$$ #", "#### #  $ #", "#      #$ #", "# ###@ #  #", "#  ##  #$ #", "# ##  ##  #", "##*#.     #", "##....    #", "###########"] },
+  { name: "MISTY TUNNEL", rows: ["############", "####     ###", "#### $$  * #", "# ###  * ..#", "#  ##   #..#", "#  ### ### #", "#  ###$$ . #", "##      #  #", "## $##  ## #", "###@##    ##", "############"] },
+  { name: "COLD LEDGE", rows: ["############", "#*.###    ##", "##. ## ##  #", "## $ # ### #", "##$#    ####", "# $    #   #", "#@###$ #   #", "# # #  #   #", "# $ * #    #", "## ...     #", "############"] },
+  { name: "MOSSY GROVE", rows: ["###########", "# ##      #", "#  ###    #", "#       $ #", "#    #  ###", "# ## ### .#", "## $$## $*#", "##   @ ...#", "###########"] },
+  { name: "SILENT YARD", rows: ["###########", "#       ###", "# $   $ # #", "# #    $  #", "####   $  #", "###. @##$ #", "##... #   #", "##.. ###$##", "#        ##", "###########"] },
+  { name: "CRUMBLING ALCOVE", rows: ["###########", "##       ##", "##$    ..##", "##   ## . #", "##$     ###", "# $ #######", "# .$#@    #", "#..   $ $ #", "#         #", "###########"] },
+  { name: "ANCIENT VAULT", rows: ["###########", "##    # @##", "###$   $ ##", "#.#.$# ####", "#.#  ######", "#   $  #  #", "# #       #", "# ##  ##  #", "# $   #.. #", "##     * ##", "###########"] },
+  { name: "ROOTED NEST", rows: ["############", "##         #", "##   #######", "#    #  #@##", "#    ##  $ #", "# ##### $ $#", "#    ### $ #", "#       $* #", "# ##  ## ..#", "###   #..*.#", "############"] },
+  { name: "WILD MAZE", rows: ["###########", "#....     #", "# #.   #  #", "# #.   ## #", "# ### $@$ #", "##  # $$# #", "###     # #", "####  $$###", "#         #", "##   ##  ##", "###########"] },
+  { name: "HIDDEN BRIDGE", rows: ["############", "#  ## ##   #", "# ## $     #", "# # $      #", "#   $      #", "#   $      #", "####    .  #", "#  #####.. #", "#.$ #### . #", "#** #      #", "##+$    #  #", "############"] },
+  { name: "CROOKED STAIR", rows: ["############", "###    #*.##", "##  #$ ##.##", "### #   .. #", "### #    . #", "#@# $$   . #", "# $        #", "# #   #    #", "#### # $ $ #", "###  ##  ###", "############"] },
+  { name: "DAMP WELL", rows: ["###########", "##.. .  ###", "#@##      #", "#$ #      #", "# ####  $ #", "# #    ## #", "# $ $  ####", "#  $   ####", "#  ### $ ##", "#...##    #", "###########"] },
+  { name: "BURIED GARDEN", rows: ["###########", "# ....   ##", "# .. ## $@#", "## $ #  ###", "## ##   ###", "# $###$   #", "#    #    #", "## # $$   #", "## #     ##", "###########"] },
+  { name: "DUSTY CHAMBER", rows: ["############", "# ##  #@# ##", "# #  ##$# ##", "#  #  #    #", "# $      . #", "#   $  ##..#", "# ## $######", "# ##     ###", "##...$ $   #", "##.$ ##  ###", "############"] },
+  { name: "QUIET CLOISTER", rows: ["###########", "#  @#   ###", "##$ #   $ #", "#  ## $ $ #", "#    ###  #", "#    ###$ #", "###   #   #", "###   ##$ #", "##    ..  #", "##  ....###", "###########"] },
+  { name: "NARROW GATE", rows: ["###########", "##   ##@###", "#.. $##$  #", "#..#.   $ #", "# .#$   $ #", "#   $     #", "#  ##   # #", "#  ##   # #", "#   ### # #", "###########"] },
+  { name: "FORGOTTEN CRYPT", rows: ["###########", "##   @  ###", "# $$$###  #", "# #  #    #", "# $$ ##   #", "# # $  ## #", "#      ## #", "# #     ..#", "###  ....##", "###########"] },
+  { name: "SHADOWED CORNER", rows: ["###########", "###   ## ##", "#  $. $...#", "#  *.#    #", "###$ #    #", "#  $ #@## #", "#    # ####", "#    #   ##", "#    # $ ##", "#    ##  ##", "###########"] },
+  { name: "GLOWING SHRINE", rows: ["###########", "##        #", "## $$     #", "# $ $ ### #", "#    ###  #", "######   .#", "###  # # .#", "## $  $.#.#", "##@#    ..#", "###########"] },
+  { name: "DEEP ARCH", rows: ["###########", "#      ####", "#  ##$  $@#", "#  # $ $###", "# ## ##   #", "#.....  ###", "#  .    $ #", "#       $ #", "##        #", "###########"] },
+  { name: "SUNKEN CELLAR", rows: ["###########", "#       ###", "# ## $ $###", "# ###$ $ ##", "#   # ##  #", "#.     #@ #", "#.. $  $  #", "#.#. ##  ##", "#.## ##  ##", "###########"] },
+  { name: "BROKEN CROSSING", rows: ["###########", "#      ## #", "# $ $  ## #", "# ## $ #  #", "#  # $ #  #", "### $ $## #", "#### @  . #", "##     ..##", "##   ##..##", "##    # . #", "###########"] },
+  { name: "HOLLOW TUNNEL", rows: ["############", "##  . .   ##", "### ...  $ #", "# ##.. $ $ #", "#  #   ##$ #", "#    ####  #", "# #####    #", "#   #@##$  #", "# ##  # $$##", "##        ##", "############"] },
+  { name: "WINDING LEDGE", rows: ["###########", "##     ####", "##    $# @#", "#       $ #", "#   ##*$###", "#    #.. ##", "#  ## $ $ #", "#  #  #   #", "#   . ##  #", "#  .. #####", "###########"] },
+  { name: "THORNY GROVE", rows: ["###########", "#      ####", "#   $ #####", "#   ###   #", "#   ##    #", "#  ## $$$ #", "#  @.$    #", "#   . ##  #", "#  #..##$ #", "##  ..#   #", "###########"] },
+  { name: "ELDER YARD", rows: ["###########", "###  #    #", "#    ##   #", "# $   ##  #", "# $   $   #", "# #### # ##", "# $  .@#$##", "# $ ....  #", "####  .   #", "###       #", "###########"] },
+  { name: "TWISTED ALCOVE", rows: ["###########", "###     # #", "#  ##   # #", "##   # $  #", "#   $  $  #", "# @##$$   #", "#   #.  # #", "#  ..*##  #", "#   ..#  ##", "###########"] },
+  { name: "TANGLED VAULT", rows: ["###########", "#####   ###", "#  .#    ##", "#..#.   $ #", "# ..###   #", "#   @ ### #", "#    $$   #", "# $ $   $ #", "######    #", "###########"] },
+  { name: "OVERGROWN NEST", rows: ["############", "##  ##    ##", "#  $.#.   ##", "#   ...   ##", "#  ##.*    #", "# $##$##  ##", "#   #@##  ##", "# ####  $ ##", "# ## $ $ # #", "##         #", "############"] },
+  { name: "MISTY MAZE", rows: ["############", "##         #", "## $ $#    #", "####       #", "#####      #", "### #  ### #", "### #$  .. #", "##  #  #*..#", "#   $$ ..$##", "#   #   #@##", "############"] },
+  { name: "COLD BRIDGE", rows: ["############", "#       # ##", "# # $ ### ##", "# #  $   $@#", "# #   $ ####", "#  # $    .#", "## ##$   ..#", "#####      #", "#   ##.#  .#", "#    *.#####", "############"] },
+  { name: "MOSSY STAIR", rows: ["###########", "####     ##", "#     ##  #", "#     .   #", "#  .##.## #", "# ..##.   #", "# ####  $ #", "# $     ###", "# $$$   $@#", "##    #####", "###########"] },
+  { name: "SILENT WELL", rows: ["###########", "##  ## ## #", "## .#     #", "# $*      #", "#  .$#  $ #", "#  #@##  ##", "#  ##  ####", "#  ...$# ##", "#  $#     #", "##  #     #", "###########"] },
+  { name: "CRUMBLING GARDEN", rows: ["###########", "##   ###@##", "##    ##$##", "# ##  ##  #", "#   $###  #", "#  $$ ##.##", "#   $ .#.##", "####   ..##", "#   $   .##", "## #     ##", "###########"] },
+  { name: "ANCIENT CHAMBER", rows: ["###########", "###   #  ##", "#      .. #", "# $## .#..#", "#  ## $#. #", "# $# @    #", "#  # ##   #", "# $$$ #  ##", "#       ###", "###########"] },
+  { name: "ROOTED CLOISTER", rows: ["###########", "#   @#   ##", "# $$ ##   #", "##$ ##  ###", "#    #.   #", "#  ## .   #", "#  ## .   #", "# $ .###  #", "# $$..    #", "#     #   #", "###########"] },
+  { name: "WILD GATE", rows: ["############", "##     ##@##", "### $####$##", "##   ##    #", "### $$  $  #", "### $ $ $  #", "#    # ..# #", "#  ####.   #", "#  ####... #", "#     #.####", "#  ##  .  ##", "############"] },
+  { name: "HIDDEN CRYPT", rows: ["###########", "####    ###", "# ##   $$ #", "#   #$  $ #", "#   $ $## #", "#  # @ #  #", "#    ##   #", "#    .. ###", "#  .... ###", "###########"] },
+  { name: "CROOKED CORNER", rows: ["###########", "###     .##", "###     ..#", "#     # ..#", "# $   ###.#", "# $$ @##  #", "# $   #   #", "# #$$ ## ##", "#        ##", "###########"] },
+  { name: "DAMP SHRINE", rows: ["###########", "##    #   #", "# $   # # #", "#     #   #", "##### ### #", "## $    $ #", "#   $.##  #", "#   #*# $ #", "#  ...+  ##", "###########"] },
+  { name: "THE KNOT", rows: ["###########", "#.## ##  ##", "#.##     ##", "#..       #", "#.* $ ### #", "# ### #####", "# # $  ## #", "# # $$$   #", "# #@  #   #", "###########"] },
+  { name: "IRON ROOTS", rows: ["###########", "##  ##    #", "#  $@$  # #", "# $ ##  # #", "# $  #$####", "#      ####", "####  ### #", "# #    ##*#", "#      .. #", "#     ...##", "###########"] },
+  { name: "NO WAY OUT?", rows: ["###########", "## .#@  ###", "#...# $$$ #", "#$ .##    #", "#  .$   # #", "# $#    ###", "#  #####  #", "#   ##    #", "#         #", "###########"] },
+  { name: "ENDLESS VAULT", rows: ["############", "##       ###", "##$$$##$   #", "##  $      #", "#  ##  ##$ #", "#   ## ##  #", "# .. #$#####", "#..### @# ##", "#..####   ##", "# .##     ##", "############"] },
+  { name: "THE GAUNTLET", rows: ["###########", "## ###   ##", "##  ##  $##", "#    #  $ #", "#.  # # $ #", "#...# # $ #", "#..    $#@#", "#       $ #", "###      ##", "###########"] },
+  { name: "MOSS LABYRINTH", rows: ["############", "##        ##", "###  ##$$ ##", "# # ##@$   #", "#    ##$ # #", "#    ## $###", "#   #.*    #", "# # #.. $# #", "# #  ..  ###", "# #  .. $# #", "##         #", "############"] },
+  { name: "MIND BREAKER", rows: ["###########", "#. ##     #", "#.  # $$$ #", "#...  #@# #", "#.    #$# #", "#     #   #", "# ##  $ $ #", "# #      ##", "#   #######", "###########"] },
+  { name: "HEART OF STONE", rows: ["############", "#     ###  #", "#          #", "#    ##  ###", "####  #### #", "# ###      #", "# $ $   $$ #", "#..  $ ## ##", "#...##     #", "#.*## $##$##", "##.##@    ##", "############"] },
+  { name: "LAST LIGHT", rows: ["############", "##  #### .##", "#   ## #..##", "#       .*+#", "# $ $ $ *.##", "# $ ## #####", "##   # $ $ #", "## ###     #", "####  #### #", "#     ## # #", "##         #", "############"] },
+  { name: "THE MOSS KING", rows: ["############", "######....##", "##  #   ####", "#        #@#", "#         $#", "# $  ##  # #", "#  $ ### #.#", "###$### .#*#", "###  ### $.#", "# $   $ # ##", "#       # ##", "############"] },
+];
+
+const WORLDS = ['MOSSY RUINS', 'FERN HALLS', 'ROOT CAVES', 'STONE DEPTHS', 'THE MOSS HEART'];
+const PER_PAGE = 20;
+
+// ---------- colours ----------
+const C = {
+  bg: '#0d140f', bgDot: '#142019',
+  floorA: '#34422f', floorB: '#2f3c2b', seam: '#222b20', speck: '#4f703a', pebble: '#4a5245', floorHi: '#3d4c37',
+  mortar: '#2a2d26', brickA: '#6b6e60', brickB: '#5e6155', brickC: '#75786a', brickHi: '#8b8e7f', brickLo: '#4c4e44',
+  moss: '#5aa344', mossDk: '#3f7d33', mossHi: '#8ccf5c',
+  pit: '#101813', ring: '#2e5a3b', glow: '#9cf26f',
+  text: '#e7f3d6', dim: '#9db58f', accent: '#8ccf5c', gold: '#f2cf63', warn: '#f0a060',
+  panel: '#17231b', panelHi: '#2f4430', panelLo: '#0b110c', ink: '#0a0f0b',
+  btn: '#2b392b', btnHi: '#435a42', btnDown: '#55724c', arrow: '#eaf6dc'
+};
+
+// ---------- pixel fonts (same as Slither) ----------
+const BIGHEX = {
+  A:'0E11111F111111', B:'1E11111E11111E', C:'0E11101010110E', D:'1C12111111121C', E:'1F10101E10101F',
+  F:'1F10101E101010', G:'0E11101711110F', H:'1111111F111111', I:'0E04040404040E', J:'0702020202120C',
+  K:'11121418141211', L:'1010101010101F', M:'111B1515111111', N:'11111915131111', O:'0E11111111110E',
+  P:'1E11111E101010', Q:'0E11111115120D', R:'1E11111E141211', S:'0F10100E01011E', T:'1F040404040404',
+  U:'1111111111110E', V:'11111111110A04', W:'1111111515150A', X:'11110A040A1111', Y:'11110A04040404',
+  Z:'1F01020408101F',
+  '0':'0E11131519110E', '1':'040C040404040E', '2':'0E11010204081F', '3':'1F02040201110E', '4':'02060A121F0202',
+  '5':'1F101E0101110E', '6':'0608101E11110E', '7':'1F010204080808', '8':'0E11110E11110E', '9':'0E11110F01020C',
+  ' ':'00000000000000', '.':'00000000000C0C', ',':'000000000C0408', '!':'04040404040004', '?':'0E110102040004',
+  ':':'000C0C000C0C00', '-':'0000000E000000', '+':'0004041F040400', '/':'01010204081010', "'":'04040800000000',
+  '(':'02040808080402', ')':'08040202020408', '>':'08040201020408', '<':'02040810080402', '*':'0004150E150400',
+  '#':'0A0A1F0A1F0A0A', '=':'00001F001F0000', '↑':'040E1504040404', '↓':'04040404150E04',
+  '←':'0004081F080400', '→':'0004021F020400', '♥':'000A1F1F0E0400', '★':'040E1F0E0A1100',
+  '@':'0E11111F1B1B1F', '✓':'0001010A040000', '♪':'060504040C1C18'
+};
+const SMALLOCT = {
+  '0':'75557', '1':'26227', '2':'71747', '3':'71717', '4':'55711', '5':'74717', '6':'74757', '7':'71122', '8':'75757', '9':'75717',
+  A:'25755', B:'65656', C:'34443', D:'65556', E:'74647', F:'74644', G:'34553', H:'55755', I:'72227', J:'11152', K:'55655',
+  L:'44447', M:'57755', N:'65555', O:'25552', P:'65644', Q:'25563', R:'65655', S:'34216', T:'72222', U:'55557', V:'55552',
+  W:'55775', X:'55255', Y:'55222', Z:'71247',
+  ' ':'00000', '.':'00002', ':':'02020', '/':'11244', '-':'00700', '+':'02720', '!':'22202', '?':'61202', '%':'51245',
+  ',':'00024', "'":'22000', '*':'52725', '#':'57575', '(':'12221', ')':'42224', '<':'12421', '>':'42124', '=':'07070',
+  '↑':'27222', '↓':'22272', '←':'13731', '→':'46764', '@':'25775', '✓':'01160', '★':'27272'
+};
+const BIG = {}, SMALL = {};
+for (const k in BIGHEX) { const h = BIGHEX[k], r = []; for (let i = 0; i < 7; i++) r.push(parseInt(h.substr(i * 2, 2), 16)); BIG[k] = r; }
+for (const k in SMALLOCT) { const h = SMALLOCT[k], r = []; for (let i = 0; i < 5; i++) r.push(parseInt(h[i], 8)); SMALL[k] = r; }
+
+// ---------- canvases ----------
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const ui = document.createElement('canvas'), g = ui.getContext('2d');      // buttons and text (UI pixels)
+const bgc = document.createElement('canvas'), bgg = bgc.getContext('2d');  // background pattern (UI pixels)
+const bd = document.createElement('canvas'), b = bd.getContext('2d');      // the board (sprite pixels)
+let DW = 1, DH = 1, U = 2, UW = 100, UH = 100;
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+// ---------- text and boxes on the UI canvas ----------
+function R(x, y, w, h, c) { g.fillStyle = c; g.fillRect(x | 0, y | 0, w | 0, h | 0); }
+function tw(s, big = true, sc = 1) { s = String(s); return s.length ? (s.length * (big ? 6 : 4) - 1) * sc : 0; }
+function T(s, x, y, col, big = true, align = 0, sc = 1, shadow = null) {
+  s = String(s).toUpperCase();
+  const w = tw(s, big, sc);
+  x = Math.round(x); y = Math.round(y);
+  if (align === 1) x -= Math.floor(w / 2); else if (align === 2) x -= w;
+  if (shadow) T(s, x + sc, y + sc, shadow, big, 0, sc);
+  const F = big ? BIG : SMALL, fw = big ? 5 : 3, fh = big ? 7 : 5, adv = (big ? 6 : 4) * sc;
+  g.fillStyle = col;
+  for (const ch of s) {
+    const rows = F[ch] || F['?'];
+    for (let r = 0; r < fh; r++) {
+      const bits = rows[r]; if (!bits) continue;
+      for (let c = 0; c < fw; c++) if (bits & (1 << (fw - 1 - c))) g.fillRect(x + c * sc, y + r * sc, sc, sc);
+    }
+    x += adv;
+  }
+}
+// a blocky panel with stepped corners and a moss trim
+function panel(x, y, w, h, face = C.panel, moss = true) {
+  x |= 0; y |= 0; w |= 0; h |= 0;
+  R(x + 2, y + 2, w, h, 'rgba(0,0,0,0.45)');
+  R(x + 1, y, w - 2, h, C.ink); R(x, y + 1, w, h - 2, C.ink);
+  R(x + 1, y + 1, w - 2, h - 2, face);
+  R(x + 2, y + 1, w - 4, 1, C.panelHi);
+  if (moss) {
+    R(x + 1, y + 1, 6, 2, C.mossDk); R(x + 1, y + 1, 4, 1, C.moss); R(x + 1, y + 3, 2, 2, C.mossDk);
+    R(x + w - 7, y + h - 3, 6, 2, C.mossDk); R(x + w - 4, y + h - 2, 3, 1, C.moss);
+  }
+}
+
+// ---------- sprites ----------
+const PAL = {
+  k: '#1b1d16', c: '#3f9b47', C: '#2b6e33', s: '#f2c28c', S: '#d39a66', e: '#1b1d16', n: '#6b4428',
+  r: '#e2733a', R: '#b8552a', b: '#3f5c9c', B: '#2d4273', h: '#4b2e1f',
+  A: '#c48a4b', a: '#9a6534', W: '#a86f3a', w: '#8a582c', N: '#ead39c', m: '#5aa344', M: '#3f7d33'
+};
+const PAL_DONE = Object.assign({}, PAL, { k: '#1d3a1d', A: '#a6de62', a: '#6fae3f', W: '#ad8c3f', w: '#8a7030', N: '#f6fbd0' });
+function sprite(rows, pal, flip = false) {
+  const c = mk(16, 16), x = c.getContext('2d');
+  rows.forEach((row, y) => [...row].forEach((ch, i) => {
+    if (ch === '.') return;
+    x.fillStyle = pal[ch] || '#f0f'; x.fillRect(flip ? 15 - i : i, y, 1, 1);
+  }));
+  return c;
+}
+const HEAD_F = ['................', '.....kkkkkk.....', '....kcccccck....', '....kCCCCCCk....', '....kssssssk....', '....ksessesk....', '....kSssssSk....', '.....kkkkkk.....'];
+const HEAD_B = ['................', '.....kkkkkk.....', '....kcccccck....', '....kcccccck....', '....kCCCCCCk....', '....knnnnnnk....', '....kSnnnnSk....', '.....kkkkkk.....'];
+const BODY_F = ['...kkrrrrrrkk...', '...ksrrrrrrsk...', '...kkRrrrrRkk...', '....kbbbbbbk....'];
+const BODY_B = ['...kkrrrrrrkk...', '...ksrrrrrrsk...', '...kkRRRRRRkk...', '....kbbbbbbk....'];
+const LEGS = {
+  stand: ['....kbbkkbbk....', '....kbbkkbbk....', '....khhkkhhk....', '................'],
+  a: ['....kbbkkbbk....', '....khhkkbbk....', '.....kk.khhk....', '................'],
+  b: ['....kbbkkbbk....', '....kbbkkhhk....', '....khhk.kk.....', '................']
+};
+const HEAD_S = ['................', '.....kkkkk......', '....kccccck.....', '....kcccCCCk....', '....knsssssk....', '....knsssesk....', '....knSssssk....', '.....kkkkkk.....'];
+const BODY_S = ['.....krrrrk.....', '.....krrsrk.....', '.....kRrrRk.....', '.....kbbbbk.....'];
+const BODY_SP = ['.....krrrrk.....', '.....krrrrrssk..', '.....kRrrRk.....', '.....kbbbbk.....'];
+const LEGS_S = {
+  stand: ['.....kbbbbk.....', '.....kbbbbk.....', '.....khhhhhk....', '................'],
+  a: ['....kbbkkbbk....', '...kbbk..kbbk...', '...khhk..khhhk..', '................'],
+  b: ['.....kbbbbk.....', '.....kbbbbk.....', '.....khhhhhk....', '................']
+};
+const GUY = {};
+for (const f of ['stand', 'a', 'b']) {
+  GUY['D' + f] = sprite(HEAD_F.concat(BODY_F, LEGS[f]), PAL);
+  GUY['U' + f] = sprite(HEAD_B.concat(BODY_B, LEGS[f]), PAL);
+  GUY['R' + f] = sprite(HEAD_S.concat(BODY_S, LEGS_S[f]), PAL);
+  GUY['L' + f] = sprite(HEAD_S.concat(BODY_S, LEGS_S[f]), PAL, true);
+  GUY['Rp' + f] = sprite(HEAD_S.concat(BODY_SP, LEGS_S[f]), PAL);
+  GUY['Lp' + f] = sprite(HEAD_S.concat(BODY_SP, LEGS_S[f]), PAL, true);
+}
+const CRATE_ROWS = [
+  '................', '.kMMMMmkkkkkkkk.', '.kmmmAAAAAAAAAk.', '.kmnwwwwwwwwnAk.', '.kAwWWWWWWWWwAk.', '.kAwWAWWWWWWwAk.',
+  '.kAwWWAWWWWWwAk.', '.kAwWWWAWWWWwAk.', '.kAwWWWWAWWWwAk.', '.kAwWWWWWAWWwAk.', '.kAwWWWWWWAWwAk.', '.kAwWWWWWWWAwAk.',
+  '.kAnwwwwwwwwnAk.', '.kaaaaaaaaaaaak.', '.kkkkkkkkkkkkkk.', '................'
+];
+const CRATE = sprite(CRATE_ROWS, PAL), CRATE_DONE = sprite(CRATE_ROWS, PAL_DONE);
+
+// goal pit masks
+const PIT = [], RING = [], GLOW = [];
+for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+  const d = Math.hypot(x - 7.5, y - 7.5);
+  if (d < 4.2) PIT.push([x, y]);
+  else if (d < 5.6) GLOW.push([x, y]);
+  else if (d < 6.6) RING.push([x, y]);
+}
+
+// ---------- tiles ----------
+function hash(x, y, s = 0) { let h = (x * 374761393 + y * 668265263 + s * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function rnd(seed) { let a = (seed * 4294967296) | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function drawFloor(cx, ox, oy, tx, ty) {
+  const r = rnd(hash(tx, ty, 7));
+  cx.fillStyle = r() < 0.5 ? C.floorA : C.floorB; cx.fillRect(ox, oy, 16, 16);
+  cx.fillStyle = C.floorHi; cx.fillRect(ox, oy, 15, 1); cx.fillRect(ox, oy, 1, 15);
+  cx.fillStyle = C.seam; cx.fillRect(ox, oy + 15, 16, 1); cx.fillRect(ox + 15, oy, 1, 16);
+  if (r() < 0.5) cx.fillRect(ox + 1, oy + 7, 14, 1); else cx.fillRect(ox + 7, oy + 1, 1, 14);
+  for (let i = 0; i < 6; i++) { cx.fillStyle = r() < 0.55 ? C.speck : C.pebble; cx.fillRect(ox + 1 + ((r() * 13) | 0), oy + 1 + ((r() * 13) | 0), 1, 1); }
+  if (r() < 0.3) { const mx = ox + 2 + ((r() * 9) | 0), my = oy + 2 + ((r() * 9) | 0); cx.fillStyle = C.mossDk; cx.fillRect(mx, my, 3, 2); cx.fillStyle = C.moss; cx.fillRect(mx + 1, my, 2, 1); }
+}
+function drawWall(cx, ox, oy, tx, ty, open) {
+  const r = rnd(hash(tx, ty, 3));
+  cx.fillStyle = C.mortar; cx.fillRect(ox, oy, 16, 16);
+  for (let row = 0; row < 4; row++) {
+    const y0 = oy + row * 4, off = ((row + ty) % 2) * 4;
+    for (let bx = -off; bx < 16; bx += 8) {
+      const x0 = Math.max(bx, 0), x1 = Math.min(bx + 7, 16);
+      if (x1 <= x0) continue;
+      const k = r();
+      cx.fillStyle = k < 0.33 ? C.brickA : k < 0.66 ? C.brickB : C.brickC; cx.fillRect(ox + x0, y0, x1 - x0, 3);
+      cx.fillStyle = C.brickHi; cx.fillRect(ox + x0, y0, x1 - x0, 1);
+      cx.fillStyle = C.brickLo; cx.fillRect(ox + x0, y0 + 2, x1 - x0, 1);
+    }
+  }
+  if (open.up) {   // moss growing over the top, dripping down
+    cx.fillStyle = C.moss; cx.fillRect(ox, oy, 16, 3);
+    cx.fillStyle = C.mossHi; cx.fillRect(ox, oy, 16, 1);
+    cx.fillStyle = C.mossDk;
+    for (let x = 0; x < 16; x++) { const n = r(); if (n < 0.45) cx.fillRect(ox + x, oy + 3, 1, 1 + ((n * 8) | 0) % 4); }
+  } else if (r() < 0.35) {
+    cx.fillStyle = C.mossDk; const mx = (r() * 12) | 0; cx.fillRect(ox + mx, oy + ((r() * 10) | 0) + 2, 3, 2);
+  }
+  if (open.down) { cx.fillStyle = 'rgba(0,0,0,0.28)'; cx.fillRect(ox, oy + 14, 16, 2); }
+  if (open.left) { cx.fillStyle = 'rgba(255,255,255,0.06)'; cx.fillRect(ox, oy, 1, 16); }
+  if (open.right) { cx.fillStyle = 'rgba(0,0,0,0.25)'; cx.fillRect(ox + 15, oy, 1, 16); }
+}
+
+// ---------- save ----------
+const SAVE_KEY = 'mossblocks.v1';
+let save = { unlocked: 1, best: {}, sound: true };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && typeof s === 'object') save = Object.assign(save, s); } catch (e) {}
+if (!save.best || typeof save.best !== 'object') save.best = {};
+save.unlocked = Math.max(1, Math.min(LEVELS.length, save.unlocked | 0));
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+
+// ---------- sound ----------
+let AC = null;
+function audio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f, d, type = 'square', v = 0.04, f2 = 0, delay = 0) {
+  if (!save.sound || !AC) return;
+  const t = AC.currentTime + delay, o = AC.createOscillator(), gn = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+  gn.gain.setValueAtTime(v, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(gn); gn.connect(AC.destination); o.start(t); o.stop(t + d + 0.03);
+}
+const SFX = {
+  step() { tone(190, 0.035, 'triangle', 0.025, 150); },
+  push() { tone(120, 0.09, 'sawtooth', 0.035, 85); },
+  goal() { tone(784, 0.09, 'square', 0.035); tone(1175, 0.14, 'square', 0.03, 0, 0.07); },
+  off() { tone(392, 0.08, 'triangle', 0.03, 262); },
+  bump() { tone(80, 0.07, 'square', 0.035, 60); },
+  undo() { tone(700, 0.05, 'triangle', 0.03, 460); },
+  ui() { tone(1300, 0.025, 'square', 0.02); },
+  clear() { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => tone(f, 0.11, 'square', 0.035, 0, i * 0.08)); }
+};
+function vib(p) { if (save.sound && navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} } }
+
+// ---------- level state ----------
+const VOID = 0, FLOOR = 1, WALL = 2;
+let L = null;           // { i, w, h, cell, goal }
+let boxes = [], player = 0, facing = 'D', moves = 0, pushes = 0, history = [];
+let anim = null, queue = [], walkFrame = 0, pushT = 0, won = false, wonT = 0;
+let staticLayer = null, particles = [];
+const DIR = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+
+function loadLevel(i) {
+  const rows = LEVELS[i].rows, h = rows.length, w = Math.max(...rows.map(r => r.length));
+  const cell = new Uint8Array(w * h), goal = new Uint8Array(w * h);
+  const bx = []; let pl = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const ch = rows[y][x] || ' ', k = y * w + x;
+    if (ch === '#') cell[k] = WALL;
+    if ('.*+'.includes(ch)) goal[k] = 1;
+    if ('$*'.includes(ch)) bx.push(k);
+    if ('@+'.includes(ch)) pl = k;
+  }
+  // floor = everything the guy can reach (crates do not block this fill)
+  const seen = new Uint8Array(w * h), st = [pl]; seen[pl] = 1;
+  while (st.length) {
+    const k = st.pop(); cell[k] = FLOOR; const x = k % w, y = (k / w) | 0;
+    for (const [dx, dy] of Object.values(DIR)) {
+      const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const n = ny * w + nx; if (!seen[n] && cell[n] !== WALL) { seen[n] = 1; st.push(n); }
+    }
+  }
+  L = { i, w, h, cell, goal };
+  boxes = bx; player = pl; facing = 'D'; moves = 0; pushes = 0; history = []; anim = null; queue = []; won = false; particles = [];
+  buildStatic();
+  screen = 'play';
+}
+function isFloor(x, y) { return x >= 0 && y >= 0 && x < L.w && y < L.h && L.cell[y * L.w + x] === FLOOR; }
+function isWall(x, y) { return x >= 0 && y >= 0 && x < L.w && y < L.h && L.cell[y * L.w + x] === WALL; }
+function buildStatic() {
+  const { w, h } = L;
+  staticLayer = mk(w * 16, h * 16);
+  const cx = staticLayer.getContext('2d');
+  bd.width = w * 16; bd.height = h * 16;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (isFloor(x, y)) {
+      drawFloor(cx, x * 16, y * 16, x, y);
+      cx.fillStyle = 'rgba(0,0,0,0.32)';
+      if (isWall(x, y - 1)) cx.fillRect(x * 16, y * 16, 16, 3);
+      if (isWall(x - 1, y)) cx.fillRect(x * 16, y * 16, 2, 16);
+    } else if (isWall(x, y)) {
+      let near = false;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isFloor(x + dx, y + dy)) near = true;
+      if (!near) { L.cell[y * w + x] = VOID; continue; }
+    }
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!isWall(x, y)) continue;
+    drawWall(cx, x * 16, y * 16, x, y, { up: !isWall(x, y - 1), down: isFloor(x, y + 1), left: !isWall(x - 1, y), right: !isWall(x + 1, y) });
+  }
+}
+function boxAt(k) { return boxes.indexOf(k); }
+function onGoals() { let n = 0; for (const k of boxes) if (L.goal[k]) n++; return n; }
+
+function doMove(d, now) {
+  if (won) return false;
+  const [dx, dy] = DIR[d], x = player % L.w, y = (player / L.w) | 0, nx = x + dx, ny = y + dy;
+  facing = d;
+  if (!isFloor(nx, ny)) { SFX.bump(); queue = []; return false; }
+  const n = ny * L.w + nx, bi = boxAt(n);
+  if (bi >= 0) {
+    if (!isFloor(nx + dx, ny + dy) || boxAt((ny + dy) * L.w + nx + dx) >= 0) { SFX.bump(); queue = []; return false; }
+    const to = (ny + dy) * L.w + nx + dx, wasGoal = L.goal[n];
+    history.push({ p: player, bi, from: n, f: facing });
+    anim = { t0: now, dur: 125, p0: player, p1: n, bi, b0: n, b1: to };
+    boxes[bi] = to; player = n; moves++; pushes++; pushT = now + 260;
+    SFX.push();
+    if (L.goal[to]) { SFX.goal(); vib(12); burst(to, now); } else if (wasGoal) SFX.off();
+  } else {
+    history.push({ p: player, bi: -1, f: facing });
+    anim = { t0: now, dur: 105, p0: player, p1: n, bi: -1 };
+    player = n; moves++;
+    SFX.step();
+  }
+  walkFrame ^= 1;
+  if (onGoals() === boxes.length) { won = true; wonT = now + 450; queue = []; }
+  return true;
+}
+function undo() {
+  if (!history.length || won) return;
+  anim = null; queue = [];
+  const hst = history.pop();
+  if (hst.bi >= 0) { boxes[hst.bi] = hst.from; pushes--; }
+  player = hst.p; facing = hst.f; moves--;
+  SFX.undo();
+}
+function restart() { if (L) { SFX.undo(); loadLevel(L.i); } }
+function burst(k, now) {
+  const cx = (k % L.w) * 16 + 8, cy = ((k / L.w) | 0) * 16 + 8;
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2, s = 0.6 + Math.random() * 1.4;
+    particles.push({ x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 0.8, t0: now, life: 500 + Math.random() * 400, c: Math.random() < 0.5 ? C.glow : C.mossHi });
+  }
+}
+// path for tap-to-walk (crates are obstacles)
+function pathTo(target) {
+  if (target === player) return [];
+  const prev = new Int32Array(L.w * L.h).fill(-1), dirOf = [];
+  const q = [player]; prev[player] = player;
+  for (let i = 0; i < q.length; i++) {
+    const k = q[i], x = k % L.w, y = (k / L.w) | 0;
+    for (const d of ['U', 'D', 'L', 'R']) {
+      const [dx, dy] = DIR[d], nx = x + dx, ny = y + dy;
+      if (!isFloor(nx, ny)) continue;
+      const n = ny * L.w + nx;
+      if (prev[n] >= 0 || boxAt(n) >= 0) continue;
+      prev[n] = k; dirOf[n] = d; q.push(n);
+      if (n === target) {
+        const path = []; let c = n;
+        while (c !== player) { path.unshift(dirOf[c]); c = prev[c]; }
+        return path;
+      }
+    }
+  }
+  return null;
+}
+
+// ---------- screens ----------
+let screen = 'title';   // title levels help play
+let buttons = [];       // clickable areas drawn this frame (UI pixels)
+let pressedBtn = null, hold = null, lvlPage = 0;
+let layout = {};
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 4);
+  const cw = cv.clientWidth || innerWidth, ch = cv.clientHeight || innerHeight;
+  DW = Math.max(1, Math.round(cw * dpr)); DH = Math.max(1, Math.round(ch * dpr));
+  cv.width = DW; cv.height = DH;
+  U = Math.max(1, Math.min(12, Math.floor(Math.min(DW / 220, DH / 330))));
+  UW = Math.ceil(DW / U); UH = Math.ceil(DH / U);
+  ui.width = UW; ui.height = UH; bgc.width = UW; bgc.height = UH;
+  bgg.fillStyle = C.bg; bgg.fillRect(0, 0, UW, UH);
+  const r = rnd(0.42);
+  for (let y = 0; y < UH; y += 4) for (let x = (y / 4) % 2 * 2; x < UW; x += 4) { bgg.fillStyle = C.bgDot; bgg.fillRect(x, y, 1, 1); }
+  for (let i = 0; i < UW * UH / 400; i++) { bgg.fillStyle = r() < 0.5 ? '#16261a' : '#1a2c1d'; bgg.fillRect((r() * UW) | 0, (r() * UH) | 0, 2, 1); }
+}
+function computeLayout() {
+  const portrait = UH > UW * 1.15;
+  const c = portrait ? 28 : 26, pad = c * 3;
+  let dpx, dpy, undoR, resetR, board;
+  if (portrait) {
+    dpx = Math.floor(UW / 2 - pad / 2); dpy = UH - pad - 10;
+    undoR = { x: dpx - 56, y: dpy + c + 1, w: 48, h: 26 };
+    resetR = { x: dpx + pad + 8, y: dpy + c + 1, w: 48, h: 26 };
+    board = { x: 4, y: 32, w: UW - 8, h: dpy - 32 - 2 };
+  } else {
+    dpx = UW - pad - 10; dpy = UH - pad - 8;
+    undoR = { x: 10, y: UH - 34, w: 48, h: 26 };
+    resetR = { x: 64, y: UH - 34, w: 48, h: 26 };
+    board = { x: 8, y: 32, w: UW - 16, h: UH - 32 - 6 };
+  }
+  layout = { portrait, c, dpx, dpy, undoR, resetR, board };
+}
+function boardPlacement() {
+  const { board } = layout;
+  const bw = L.w * 16, bh = L.h * 16;
+  const k = Math.max(1, Math.floor(Math.min(board.w * U / bw, board.h * U / bh)));
+  const x = Math.round(board.x * U + (board.w * U - bw * k) / 2), y = Math.round(board.y * U + (board.h * U - bh * k) / 2);
+  return { k, x, y, w: bw * k, h: bh * k };
+}
+
+// ---------- drawing ----------
+function lerp(a, b, t) { return a + (b - a) * t; }
+function drawBoard(now) {
+  b.imageSmoothingEnabled = false;
+  b.clearRect(0, 0, bd.width, bd.height);
+  b.drawImage(staticLayer, 0, 0);
+  const w = L.w, pulse = 0.35 + 0.3 * Math.sin(now / 380);
+  // goals
+  for (let k = 0; k < L.goal.length; k++) {
+    if (!L.goal[k]) continue;
+    const ox = (k % w) * 16, oy = ((k / w) | 0) * 16;
+    b.fillStyle = C.ring; for (const [x, y] of RING) b.fillRect(ox + x, oy + y, 1, 1);
+    b.fillStyle = C.pit; for (const [x, y] of PIT) b.fillRect(ox + x, oy + y, 1, 1);
+    for (const [x, y] of GLOW) b.fillRect(ox + x, oy + y, 1, 1);
+    b.globalAlpha = pulse; b.fillStyle = C.glow; for (const [x, y] of GLOW) b.fillRect(ox + x, oy + y, 1, 1);
+    b.globalAlpha = 1;
+  }
+  const t = anim ? Math.min(1, (now - anim.t0) / anim.dur) : 1;
+  // crates
+  boxes.forEach((k, i) => {
+    let px = (k % w) * 16, py = ((k / w) | 0) * 16;
+    const moving = anim && anim.bi === i && t < 1;
+    if (moving) { px = Math.round(lerp((anim.b0 % w) * 16, px, t)); py = Math.round(lerp(((anim.b0 / w) | 0) * 16, py, t)); }
+    b.fillStyle = 'rgba(0,0,0,0.35)'; b.fillRect(px + 2, py + 14, 13, 2);
+    b.drawImage(!moving && L.goal[k] ? CRATE_DONE : CRATE, px, py);
+  });
+  // the guy
+  let px = (player % w) * 16, py = ((player / w) | 0) * 16;
+  const walking = anim && t < 1;
+  if (walking) { px = Math.round(lerp((anim.p0 % w) * 16, px, t)); py = Math.round(lerp(((anim.p0 / w) | 0) * 16, py, t)); }
+  const frame = walking ? (walkFrame ? 'a' : 'b') : 'stand';
+  const pushing = pushT > now && (facing === 'L' || facing === 'R');
+  const spr = GUY[facing + (pushing ? 'p' : '') + frame] || GUY.Dstand;
+  b.fillStyle = 'rgba(0,0,0,0.3)'; b.fillRect(px + 4, py + 14, 8, 2);
+  b.drawImage(spr, px, py - (walking && t > 0.25 && t < 0.75 ? 1 : 0));
+  // sparkles
+  particles = particles.filter(p => now - p.t0 < p.life);
+  for (const p of particles) {
+    const e = (now - p.t0) / 16;
+    b.globalAlpha = 1 - (now - p.t0) / p.life;
+    b.fillStyle = p.c; b.fillRect(Math.round(p.x + p.vx * e), Math.round(p.y + p.vy * e + 0.02 * e * e), 1, 1);
+  }
+  b.globalAlpha = 1;
+}
+function btn(id, x, y, w, h, label, opts = {}) {
+  const down = pressedBtn === id || (hold && hold.id === id);
+  const face = opts.face || C.btn;
+  x |= 0; y |= 0;
+  g.globalAlpha = opts.alpha || 1;
+  R(x + 1, y + 2, w - 2, h, C.ink); R(x, y + 3, w, h - 4, C.ink);
+  const o = down ? 1 : 0;
+  R(x + 1, y + o, w - 2, h - 1, C.ink); R(x, y + 1 + o, w, h - 3, C.ink);
+  R(x + 1, y + 1 + o, w - 2, h - 3, down ? C.btnDown : face);
+  if (!down) R(x + 2, y + 1, w - 4, 1, C.btnHi);
+  R(x + 1, y + 1 + o, 3, 1, C.moss); R(x + 1, y + 2 + o, 1, 2, C.mossDk);
+  if (typeof label === 'function') label(x, y + o);
+  else if (label) T(label, x + w / 2, y + o + Math.floor((h - 1) / 2) - (opts.small ? 2 : 3), opts.color || C.text, !opts.small, 1);
+  g.globalAlpha = 1;
+  buttons.push({ id, x, y, w, h });
+}
+function arrow(dir, cx, cy, col) {
+  const pts = { U: [[0, -3], [-1, -2], [0, -2], [1, -2], [-2, -1], [-1, -1], [0, -1], [1, -1], [2, -1], [-3, 0], [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0], [3, 0], [-1, 1], [0, 1], [1, 1], [-1, 2], [0, 2], [1, 2]] }.U;
+  g.fillStyle = col;
+  for (const [x, y] of pts) {
+    let X = x, Y = y;
+    if (dir === 'D') Y = -y; else if (dir === 'L') { X = y; Y = x; } else if (dir === 'R') { X = -y; Y = x; }
+    g.fillRect(cx + X, cy + Y, 1, 1);
+  }
+}
+function icon(name, cx, cy, col) {
+  g.fillStyle = col;
+  const P = (x, y, w = 1, h = 1) => g.fillRect(cx + x, cy + y, w, h);
+  if (name === 'undo') { P(-3, -3, 1, 1); P(-4, -2, 3, 1); P(-5, -1, 5, 1); P(-4, 0, 3, 1); P(-3, 1, 1, 1); P(-1, -1, 4, 1); P(3, -1, 1, 4); P(2, 3, 1, 1); P(-1, 3, 3, 1); }
+  if (name === 'reset') { P(-2, -4, 4, 1); P(-4, -3, 2, 1); P(2, -3, 2, 1); P(-5, -2, 1, 4); P(4, -2, 1, 2); P(-4, 2, 2, 1); P(2, 2, 2, 1); P(-2, 3, 4, 1); P(3, -5, 1, 3); P(1, -2, 3, 1); }
+  if (name === 'menu') { P(-4, -3, 9, 1); P(-4, 0, 9, 1); P(-4, 3, 9, 1); }
+}
+function drawControls(now) {
+  const { c, dpx, dpy, undoR, resetR } = layout;
+  const a = 0.62;
+  // D-pad: four blocky stone buttons in a plus, see-through
+  const m = Math.floor(c / 2) - 4;
+  g.globalAlpha = a * 0.6; R(dpx + c, dpy + c, c, c, C.ink); R(dpx + c + m, dpy + c + m, 8, 8, C.btn); g.globalAlpha = 1;
+  const pos = { U: [dpx + c, dpy], D: [dpx + c, dpy + 2 * c], L: [dpx, dpy + c], R: [dpx + 2 * c, dpy + c] };
+  for (const d of ['U', 'L', 'R', 'D']) {
+    const [x, y] = pos[d];
+    btn(d, x, y, c, c, (bx, by) => arrow(d, bx + Math.floor(c / 2), by + Math.floor(c / 2) - 1, C.arrow), { alpha: a });
+  }
+  btn('undo', undoR.x, undoR.y, undoR.w, undoR.h, (x, y) => { icon('undo', x + 11, y + 12, C.arrow); T('UNDO', x + 20, y + 10, C.text, false); }, { alpha: a });
+}
+function drawHud(now) {
+  R(0, 0, UW, 29, 'rgba(8,13,9,0.82)');
+  R(0, 29, UW, 1, C.ink);
+  for (let x = 0; x < UW; x += 7) { R(x, 28, 3, 1, C.mossDk); if ((x / 7) % 3 === 0) R(x + 1, 29, 1, 2, C.mossDk); }
+  T('LEVEL ' + (L.i + 1), 6, 4, C.accent, true, 0, 1, C.ink);
+  T(LEVELS[L.i].name, 6, 15, C.dim, false);
+  const on = onGoals();
+  T('MOVES ' + moves, 6, 22, C.text, false);
+  T('PUSHES ' + pushes, 50, 22, C.text, false);
+  // crates counter
+  const label = on + '/' + boxes.length, lx = UW - 62 - tw(label);
+  g.drawImage(CRATE, lx - 15, 4, 12, 12);
+  T(label, lx, 7, on === boxes.length ? C.accent : C.text, true);
+  // reset lives up here, away from the D-pad, so a stray thumb can't wipe a nearly solved level
+  btn('reset', UW - 53, 3, 23, 20, (x, y) => icon('reset', x + 12, y + 10, C.arrow));
+  btn('menu', UW - 26, 3, 22, 20, (x, y) => icon('menu', x + 11, y + 9, C.arrow));
+  const best = save.best[L.i];
+  if (best) T('BEST ' + best, 100, 22, C.dim, false);
+}
+function drawWin(now) {
+  const w = 150, h = 96, x = Math.floor(UW / 2 - w / 2), y = Math.floor(UH * 0.42 - h / 2);
+  panel(x, y, w, h);
+  const last = L.i === LEVELS.length - 1;
+  const worldEnd = !last && (L.i + 1) % PER_PAGE === 0;
+  T(last ? 'ALL DONE!' : worldEnd ? 'WORLD CLEAR!' : 'LEVEL CLEAR!', x + w / 2, y + 9, C.gold, true, 1, 1, C.ink);
+  T(last ? 'EVERY CRATE IS HOME' : worldEnd ? 'NEXT: ' + WORLDS[(L.i + 1) / PER_PAGE] : LEVELS[L.i].name, x + w / 2, y + 21, worldEnd ? C.accent : C.dim, false, 1);
+  T('MOVES ' + moves + '   PUSHES ' + pushes, x + w / 2, y + 32, C.text, false, 1);
+  const best = save.best[L.i];
+  T(best === moves && wonBest ? '★ NEW BEST ★' : 'BEST ' + best, x + w / 2, y + 41, wonBest ? C.gold : C.dim, false, 1);
+  if (last) {
+    btn('levels', x + 10, y + 56, 62, 24, 'LEVELS');
+    btn('title', x + w - 72, y + 56, 62, 24, 'MENU');
+  } else {
+    btn('next', x + w - 72, y + 56, 62, 24, 'NEXT');
+    btn('replay', x + 10, y + 56, 62, 24, 'REPLAY');
+  }
+}
+let wonBest = false, winShown = false;
+function drawPlay(now) {
+  const pl = boardPlacement();
+  drawBoard(now);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bd, pl.x, pl.y, pl.w, pl.h);
+  g.clearRect(0, 0, UW, UH);
+  drawHud(now);
+  if (!winShown) drawControls(now);
+  if (won && now >= wonT) {
+    if (!winShown) {
+      winShown = true;
+      const prev = save.best[L.i];
+      wonBest = !prev || moves < prev;
+      if (wonBest) save.best[L.i] = moves;
+      save.unlocked = Math.max(save.unlocked, Math.min(LEVELS.length, L.i + 2));
+      persist(); SFX.clear(); vib([30, 40, 30]);
+      for (let i = 0; i < 4; i++) setTimeout(() => boxes.forEach(k => burst(k, performance.now())), i * 120);
+    }
+    g.globalAlpha = 0.45; R(0, 30, UW, UH - 30, C.ink); g.globalAlpha = 1;
+    drawWin(now);
+  }
+  if (menuOpen) drawMenu(now);
+}
+let menuOpen = false;
+function drawMenu(now) {
+  g.globalAlpha = 0.6; R(0, 0, UW, UH, C.ink); g.globalAlpha = 1;
+  const w = 140, h = 126, x = Math.floor(UW / 2 - w / 2), y = Math.floor(UH / 2 - h / 2);
+  panel(x, y, w, h);
+  T('PAUSED', x + w / 2, y + 9, C.accent, true, 1, 1, C.ink);
+  btn('resume', x + 15, y + 22, w - 30, 22, 'KEEP PLAYING');
+  btn('levels', x + 15, y + 48, w - 30, 22, 'LEVELS');
+  btn('sound', x + 15, y + 74, w - 30, 22, save.sound ? 'SOUND: ON' : 'SOUND: OFF');
+  btn('title', x + 15, y + 100, w - 30, 22, 'MAIN MENU');
+}
+function drawTitle(now) {
+  g.clearRect(0, 0, UW, UH);
+  const sc = UW >= 200 ? 3 : 2;
+  const ty = Math.floor(UH * 0.16);
+  T('MOSS', UW / 2, ty, C.accent, true, 1, sc, C.ink);
+  T('BLOCKS', UW / 2, ty + 9 * sc, C.text, true, 1, sc, C.ink);
+  // moss drips under the logo
+  const lw = tw('BLOCKS', true, sc), lx = Math.floor(UW / 2 - lw / 2);
+  for (let i = 0; i < lw; i += 3) { const n = hash(i, 9); if (n < 0.5) R(lx + i, ty + 16 * sc + 1, 1, 1 + ((n * 10) | 0) % 4, C.mossDk); }
+  // a little scene: the guy pushing a crate along a mossy ledge
+  const sy = ty + 17 * sc + 10, sx2 = 2;
+  const span = UW + 64, t = (now / 18) % span;
+  const gx = Math.floor(t - 40), cx = gx + 16 * sx2 - 4;
+  for (let x = -((now / 60) | 0) % 32; x < UW; x += 32) {
+    g.drawImage(tileFloor, 0, 0, 16, 16, x, sy + 32, 32, 32);
+  }
+  R(0, sy + 32, UW, 2, 'rgba(0,0,0,0.25)');
+  const fr = Math.floor(now / 130) % 2 ? 'a' : 'b';
+  g.drawImage(CRATE, cx, sy, 32, 32);
+  g.drawImage(GUY['Rp' + fr], gx, sy, 32, 32);
+  // menu
+  const by = sy + 48, bw = Math.min(150, UW - 30), bx = Math.floor(UW / 2 - bw / 2);
+  const cont = save.unlocked > 1 ? 'PLAY  (LEVEL ' + save.unlocked + ')' : 'PLAY';
+  btn('play', bx, by, bw, 24, cont);
+  btn('levels', bx, by + 28, bw, 24, 'LEVELS');
+  btn('help', bx, by + 56, bw, 24, 'HOW TO PLAY');
+  btn('sound', bx, by + 84, bw, 24, save.sound ? 'SOUND: ON' : 'SOUND: OFF');
+  const done = Object.keys(save.best).length;
+  T(done + ' OF ' + LEVELS.length + ' LEVELS SOLVED', UW / 2, by + 116, C.dim, false, 1);
+}
+let tileFloor = null;
+function drawLevels(now) {
+  g.clearRect(0, 0, UW, UH);
+  const pages = Math.ceil(LEVELS.length / PER_PAGE);
+  lvlPage = Math.max(0, Math.min(pages - 1, lvlPage));
+  const first = lvlPage * PER_PAGE, last = Math.min(LEVELS.length, first + PER_PAGE);
+  T(WORLDS[lvlPage] || 'LEVELS', UW / 2, 7, C.accent, true, 1, 1, C.ink);
+  T('LEVELS ' + (first + 1) + '-' + last + '   WORLD ' + (lvlPage + 1) + ' OF ' + pages, UW / 2, 17, C.dim, false, 1);
+  const cols = UW >= 300 ? 5 : 4, bw = 40, bh = 34, gap = 6;
+  const gw = cols * bw + (cols - 1) * gap, x0 = Math.floor(UW / 2 - gw / 2), y0 = 28;
+  for (let i = first; i < last; i++) {
+    const j = i - first, x = x0 + (j % cols) * (bw + gap), y = y0 + Math.floor(j / cols) * (bh + gap);
+    const open = i < save.unlocked, best = save.best[i];
+    btn(open ? 'lv' + i : 'locked', x, y, bw, bh, (bx, by) => {
+      if (!open) { T('@', bx + bw / 2, by + 12, '#5d6b58', true, 1); return; }
+      T(String(i + 1), bx + bw / 2, by + 7, C.text, true, 1);
+      if (best) { T('✓ ' + best, bx + bw / 2, by + 19, C.accent, false, 1); }
+      else T('NEW', bx + bw / 2, by + 19, C.gold, false, 1);
+    }, { face: open ? (best ? '#2f4a2f' : C.btn) : '#1d261d' });
+  }
+  const yb = Math.min(y0 + Math.ceil(PER_PAGE / cols) * (bh + gap) + 4, UH - 28);
+  const cx = Math.floor(UW / 2);
+  btn('pgprev', cx - 82, yb, 36, 24, '<', { color: lvlPage > 0 ? C.text : '#4a5848' });
+  btn('title', cx - 38, yb, 76, 24, 'BACK');
+  btn('pgnext', cx + 46, yb, 36, 24, '>', { color: lvlPage < pages - 1 ? C.text : '#4a5848' });
+}
+function drawHelp(now) {
+  g.clearRect(0, 0, UW, UH);
+  const w = Math.min(210, UW - 12), x = Math.floor(UW / 2 - w / 2), y = 14, h = 190;
+  panel(x, y, w, h);
+  T('HOW TO PLAY', x + w / 2, y + 8, C.accent, true, 1, 1, C.ink);
+  g.drawImage(GUY.Dstand, x + 12, y + 22, 16, 16);
+  g.drawImage(CRATE, x + 34, y + 22, 16, 16);
+  const ox = x + 56, oy = y + 22;
+  for (const [px, py] of RING) R(ox + px, oy + py, 1, 1, C.ring);
+  for (const [px, py] of PIT) R(ox + px, oy + py, 1, 1, C.pit);
+  for (const [px, py] of GLOW) R(ox + px, oy + py, 1, 1, C.glow);
+  g.drawImage(CRATE_DONE, x + 78, y + 22, 16, 16);
+  const lines = [
+    ['PUSH EVERY CRATE ONTO', C.text], ['A GLOWING MOSS PIT.', C.text], ['', 0],
+    ['YOU CAN ONLY PUSH,', C.text], ['NEVER PULL. ONE CRATE', C.text], ['AT A TIME.', C.text], ['', 0],
+    ['STUCK IN A CORNER?', C.gold], ['USE UNDO OR RESET.', C.gold], ['', 0],
+    ['MOVE: D-PAD, SWIPE,', C.dim], ['OR TAP A SPOT TO WALK', C.dim], ['THERE. KEYS: ARROWS,', C.dim], ['Z UNDO, R RESET.', C.dim]
+  ];
+  lines.forEach(([s, col], i) => { if (s) T(s, x + 10, y + 44 + i * 9, col, false); });
+  btn('title', Math.floor(UW / 2 - 40), y + h + 8, 80, 24, 'BACK');
+}
+
+// ---------- input ----------
+function act(id, now) {
+  if (DIR[id]) {
+    if (screen === 'play' && !menuOpen && !winShown) { queue = []; if (!anim) doMove(id, now); else queue.push(id); }
+    return;
+  }
+  SFX.ui();
+  switch (id) {
+    case 'undo': undo(); break;
+    case 'reset': restart(); break;
+    case 'menu': menuOpen = true; break;
+    case 'resume': menuOpen = false; break;
+    case 'sound': save.sound = !save.sound; persist(); if (save.sound) { audio(); SFX.ui(); } break;
+    case 'play': startLevel(Math.min(save.unlocked, LEVELS.length) - 1); break;
+    case 'levels': menuOpen = false; screen = 'levels'; lvlPage = Math.floor((Math.min(save.unlocked, LEVELS.length) - 1) / PER_PAGE); break;
+    case 'pgprev': lvlPage = Math.max(0, lvlPage - 1); break;
+    case 'pgnext': lvlPage = Math.min(Math.ceil(LEVELS.length / PER_PAGE) - 1, lvlPage + 1); break;
+    case 'help': screen = 'help'; break;
+    case 'title': menuOpen = false; screen = 'title'; break;
+    case 'next': startLevel(Math.min(L.i + 1, LEVELS.length - 1)); break;
+    case 'replay': startLevel(L.i); break;
+    case 'locked': SFX.bump(); break;
+    default:
+      if (id.startsWith('lv')) startLevel(+id.slice(2));
+  }
+}
+function startLevel(i) { winShown = false; wonBest = false; menuOpen = false; loadLevel(i); }
+function hit(ux, uy) { for (let i = buttons.length - 1; i >= 0; i--) { const q = buttons[i]; if (ux >= q.x - 2 && ux < q.x + q.w + 2 && uy >= q.y - 2 && uy < q.y + q.h + 2) return q.id; } return null; }
+function devPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * (DW / r.width), y: (e.clientY - r.top) * (DH / r.height) }; }
+const ptr = new Map();
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); audio();
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  const now = performance.now(), p = devPos(e), id = hit(p.x / U, p.y / U);
+  if (id && DIR[id]) { hold = { id, next: now + 260, pid: e.pointerId }; act(id, now); ptr.set(e.pointerId, { kind: 'dpad' }); return; }
+  if (id) { pressedBtn = id; ptr.set(e.pointerId, { kind: 'btn', id }); return; }
+  ptr.set(e.pointerId, { kind: 'board', sx: e.clientX, sy: e.clientY, x: p.x, y: p.y, moved: false });
+});
+cv.addEventListener('pointermove', e => {
+  const s = ptr.get(e.pointerId); if (!s) return;
+  const p = devPos(e);
+  if (s.kind === 'dpad') {
+    const id = hit(p.x / U, p.y / U);
+    if (id && DIR[id] && hold && id !== hold.id) { hold = { id, next: performance.now() + 260, pid: e.pointerId }; act(id, performance.now()); }
+    return;
+  }
+  if (s.kind === 'btn') { pressedBtn = hit(p.x / U, p.y / U) === s.id ? s.id : null; return; }
+  if (screen !== 'play' || menuOpen || winShown) return;
+  const dx = e.clientX - s.sx, dy = e.clientY - s.sy;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 26) return;
+  const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : (dy > 0 ? 'D' : 'U');
+  s.sx = e.clientX; s.sy = e.clientY; s.moved = true;
+  const now = performance.now();
+  if (!anim) { queue = []; doMove(d, now); } else if (queue.length < 2) queue.push(d);
+});
+function endPtr(e, cancel) {
+  const s = ptr.get(e.pointerId); if (!s) return;
+  ptr.delete(e.pointerId);
+  const now = performance.now();
+  if (s.kind === 'dpad') { if (hold && hold.pid === e.pointerId) hold = null; return; }
+  if (s.kind === 'btn') { const p = devPos(e), id = hit(p.x / U, p.y / U); pressedBtn = null; if (!cancel && id === s.id) act(id, now); return; }
+  if (!cancel && !s.moved && screen === 'play' && !menuOpen && !winShown) {
+    const pl = boardPlacement();
+    const tx = Math.floor((s.x - pl.x) / (pl.k * 16)), ty = Math.floor((s.y - pl.y) / (pl.k * 16));
+    if (tx < 0 || ty < 0 || tx >= L.w || ty >= L.h) return;
+    const k = ty * L.w + tx, px = player % L.w, py = (player / L.w) | 0;
+    if (boxAt(k) >= 0 && Math.abs(tx - px) + Math.abs(ty - py) === 1) { const d = tx > px ? 'R' : tx < px ? 'L' : ty > py ? 'D' : 'U'; act(d, now); return; }
+    if (L.cell[k] !== FLOOR || boxAt(k) >= 0) return;
+    const path = pathTo(k);
+    if (path && path.length) { queue = path; if (!anim) doMove(queue.shift(), now); }
+  }
+}
+cv.addEventListener('pointerup', e => endPtr(e, false));
+cv.addEventListener('pointercancel', e => endPtr(e, true));
+cv.addEventListener('contextmenu', e => e.preventDefault());
+const KEYS = { ArrowUp: 'U', KeyW: 'U', ArrowDown: 'D', KeyS: 'D', ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+addEventListener('keydown', e => {
+  audio();
+  const now = performance.now(), d = KEYS[e.code];
+  if (d) { e.preventDefault(); if (screen !== 'play' || menuOpen || winShown) return; if (e.repeat && (anim || queue.length)) return; act(d, now); return; }
+  if (e.code === 'KeyZ' || e.code === 'KeyU' || e.code === 'Backspace') { e.preventDefault(); if (screen === 'play' && !menuOpen && !winShown) act('undo', now); return; }
+  if (e.code === 'KeyR') { if (screen === 'play' && !menuOpen) { winShown = false; act('reset', now); } return; }
+  if (e.code === 'Escape') { if (screen === 'play') { menuOpen = !menuOpen; SFX.ui(); } else if (screen !== 'title') act('title', now); return; }
+  if (e.code === 'Enter' || e.code === 'Space') {
+    e.preventDefault();
+    if (screen === 'title') act('play', now);
+    else if (screen === 'play' && winShown) act(L.i === LEVELS.length - 1 ? 'levels' : 'next', now);
+    else if (menuOpen) act('resume', now);
+  }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && screen === 'play' && !winShown) menuOpen = true; });
+addEventListener('resize', () => { resize(); computeLayout(); });
+
+// ---------- loop ----------
+function frame(now) {
+  buttons = [];
+  if (anim && now - anim.t0 >= anim.dur) { anim = null; if (queue.length && !won) doMove(queue.shift(), now); }
+  if (hold && !anim && now >= hold.next && screen === 'play' && !menuOpen && !winShown) { doMove(hold.id, now); hold.next = now + 150; }
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bgc, 0, 0, UW * U, UH * U);
+  if (screen === 'play') drawPlay(now);
+  else if (screen === 'title') drawTitle(now);
+  else if (screen === 'levels') drawLevels(now);
+  else if (screen === 'help') drawHelp(now);
+  ctx.drawImage(ui, 0, 0, UW * U, UH * U);
+  requestAnimationFrame(frame);
+}
+tileFloor = mk(16, 16); drawFloor(tileFloor.getContext('2d'), 0, 0, 3, 5);
+resize(); computeLayout();
+requestAnimationFrame(frame);
+window.__moss = {
+  get screen() { return screen; }, get level() { return L && L.i; }, get won() { return won; }, get moves() { return moves; },
+  get boxes() { return boxes.slice(); }, get player() { return player; }, act: (id) => act(id, performance.now()), start: startLevel,
+  fast: (d) => { const ok = doMove(d, performance.now()); anim = null; return ok; }
+};
+})();
+</script>
+</body>
+</html>
